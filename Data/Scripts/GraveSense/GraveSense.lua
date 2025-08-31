@@ -1,24 +1,19 @@
 -- Scripts/GraveSense/GraveSense.lua
 -- Minimal heartbeat + combat-gated death probe (Lua 5.1)
 
-GraveSense          = GraveSense or {}
-local GS            = GraveSense
-
--- Tunables
-local HEARTBEAT_MS  = 3000 -- "Polling for combat.." cadence
-local COMBAT_MS     = 1000 -- death probe cadence while in combat
-local SCAN_RADIUS_M = 8.0  -- meters for death probe
+GraveSense     = GraveSense or {}
+local GS       = GraveSense
 
 -- State
-GS._hbActive        = false -- heartbeat loop running?
-GS._cbActive        = false -- combat loop running?
-GS._inCombat        = false
-GS._ticksHB         = 0
-GS._ticksCB         = 0
-GS._seenDead        = {} -- [wuid]=true (to avoid re-logging same corpse)
+GS._hbActive   = false      -- heartbeat loop running?
+GS._cbActive   = false      -- combat loop running?
+GS._inCombat   = false
+GS._ticksHB    = 0
+GS._ticksCB    = 0
+GS._seenDead   = {}      -- [wuid]=true (to avoid re-logging same corpse)
 
 -- Subscribers
-GS._pipesDeath      = {} -- list of callbacks (fn(meta))
+GS._pipesDeath = {}      -- list of callbacks (fn(meta))
 function GraveSense.onDeathUse(fn) GS._pipesDeath[#GS._pipesDeath + 1] = fn end
 
 -- Latest death metadata (for debugging/manual bridge)
