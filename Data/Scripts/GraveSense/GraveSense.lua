@@ -140,7 +140,7 @@ function GraveSense.CombatTick()
                 if inside and IsEntityDead(e) then
                     local w = GetWUID(e)
                     local now = System.GetCurrTime and math.floor(System.GetCurrTime() * 1000) or
-                    math.floor((os.clock() or 0) * 1000)
+                        math.floor((os.clock() or 0) * 1000)
                     local last = GS._seenDeadAt[w]
                     if not last or (now - last) >= DEATH_DEBOUNCE_MS then
                         GS._seenDeadAt[w] = now
@@ -167,6 +167,15 @@ function GraveSense.CombatTick()
 end
 
 _G["GraveSense.CombatTick"] = GraveSense.CombatTick
+
+-- DEV: prove the event bus fires
+if GraveSense and GraveSense.onDeathUse then
+    GraveSense.onDeathUse(function(meta)
+        System.LogAlways(("[GraveSense] [BUS] death event: name=%s wuid=%s r=%.1fm t=%d ticks=%d")
+            :format(tostring(meta.name), tostring(meta.wuid), meta.radius or 0, meta.timeMs or -1, meta.ticks or -1))
+    end)
+end
+
 
 -- ========== LIFECYCLE ==========
 function GraveSense.StartHeartbeat()
