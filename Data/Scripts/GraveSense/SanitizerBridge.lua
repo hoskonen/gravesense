@@ -1,16 +1,12 @@
 -- Scripts/GraveSense/SanitizerBridge.lua
 -- Disabled bridge from GraveSense death events → (future) CorpseSanitizer actions
 -- Lua 5.1; no goto
+local San = GS_Sanitizer
+local function bool(x) return not not x end
 
-local ENABLE_BRIDGE = false -- keep false for now
-
-local function resolveVictim(meta)
-    -- minimal resolver stub (read-only)
-    local e = meta and meta.entity
-    local w = meta and meta.wuid
-    local nm = meta and meta.name
-    System.LogAlways(("[GraveSense→Bridge] resolve victim name=%s wuid=%s"):format(tostring(nm), tostring(w)))
-    return e, w, nm
+-- optional: toggle dumping without editing code again
+local function BRIDGE_DUMP() -- defaults to true if not set in cfg
+    return (GraveSense and GraveSense.cfg and GraveSense.cfg.bridge and GraveSense.cfg.bridge.dump) ~= false
 end
 
 -- tiny safe resolver for a single handle → {class,name,health,handle}
@@ -63,12 +59,57 @@ local function dumpInventory(subject)
 end
 
 local function onDeath(meta)
-    -- keep your existing banner (no mutations yet)
+    local cfg             = GraveSense and GraveSense.cfg or {}
+    local bcfg            = cfg.bridge or {}
+    local scfg            = cfg.sanitize or {}
+
+    local BRIDGE_SANITIZE = bool(bcfg.sanitizeOnDeath)
+    local BRIDGE_DELAY    = tonumber(bcfg.delayMs or 200) or 200
+    local DRY             = (scfg.dryRun ~= false) -- default true
+
     System.LogAlways(("[GraveSense→Bridge] would sanitize: %s (wuid=%s)")
         :format(tostring(meta.name), tostring(meta.wuid)))
 
-    -- read-only dump of victim inventory
-    dumpInventory(meta.entity)
+    -- read-only dump (optional)
+    if BRIDGE_DUMP() then
+        dumpInventory(meta.entity)
+    end
+
+    if BRIDGE_SANITIZE and San and San.nukeInventory then
+        local victim = meta.entity -- capture reference now
+        local vname  = (victim and victim.GetName and victim:GetName()) or meta.name or "entity"
+
+        System.LogAlways(("[GraveSense→Bridge] scheduling sanitize (dryRun=%s) for %s in %dms")
+            :format(tostring(DRY), tostring(vname), BRIDGE_DELAY))
+
+        if Script and Script.SetTimerForFunction then
+            GraveSense.__DoSanitize = function()
+                -- guard: victim may be gone
+                if not victim then
+                    System.LogAlways("[GraveSense→Bridge] victim entity nil at run; skipping")
+                else
+                    local ok, err = pcall(San.nukeInventory, victim, { dryRun = DRY, corpseCtx = true })
+                    if not ok then
+                        System.LogAlways("[GraveSense→Bridge] sanitize error: " .. tostring(err))
+                    end
+                end
+                -- clear trampoline to avoid reuse
+                GraveSense.__DoSanitize = nil
+                _G["GraveSense.__DoSanitize"] = nil
+            end
+            -- make sure the name is visible globally for SetTimerForFunction
+            _G["GraveSense.__DoSanitize"] = GraveSense.__DoSanitize
+            Script.SetTimerForFunction(BRIDGE_DELAY, "GraveSense.__DoSanitize")
+        else
+            -- immediate fallback
+            local ok, err = pcall(San.nukeInventory, victim, { dryRun = DRY, corpseCtx = true })
+            if not ok then
+                System.LogAlways("[GraveSense→Bridge] sanitize error: " .. tostring(err))
+            end
+        end
+    else
+        System.LogAlways("[GraveSense→Bridge] sanitizeOnDeath=false (skipping)")
+    end
 end
 
 if GraveSense and GraveSense.onDeathUse then

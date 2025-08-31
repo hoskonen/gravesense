@@ -3,21 +3,30 @@
 
 GraveSense_Config = {
     -- heartbeat (combat polling)
-    heartbeatMs = 3000, -- 3s poll for combat
+    heartbeatMs = 3000,  -- 3s poll for combat
     traceTicks  = false, -- true = log every heartbeat tick
-    debug       = true, -- show ENTER/EXIT & startup logs
+    debug       = true,  -- show ENTER/EXIT & startup logs
 
     -- combat loop (death probe)
-    combatMs    = 1000, -- 1s while in combat
-    scanRadiusM = 8.0, -- meters for death probe radius
+    combatMs    = 1000,  -- 1s while in combat
+    scanRadiusM = 8.0,   -- meters for death probe radius
     debounceMs  = 15000, -- ignore same corpse for this long
-    enabled     = true, -- master enable for the whole module
+    enabled     = true,  -- master enable for the whole module
 
     -- bridge/sanitizer (we'll use later; harmless now)
     bridge      = {
-        enabled         = true, -- subscribe to the death bus
-        sanitizeOnDeath = false, -- keep OFF for now
+        enabled         = true,  -- subscribe to the death bus
+        sanitizeOnDeath = true,  -- keep OFF for now
         delayMs         = 200,
-        dryRun          = true,
+        dryRun          = false, -- true = don't do any mutation
     },
+    sanitize    = {
+        enabled             = true,  -- allow sanitizer module
+        dryRun              = false, -- KEEP TRUE while testing
+        unequipBeforeDelete = true,
+        skipMoney           = true,
+        protectNames        = { bandage = true }, -- example
+        protectClasses      = {},                 -- fill later if needed
+    },
+
 }

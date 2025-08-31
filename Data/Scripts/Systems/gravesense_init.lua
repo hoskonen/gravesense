@@ -5,6 +5,7 @@ Script.ReloadScript("Scripts/GraveSense/GraveSense.lua")
 Script.ReloadScript("Scripts/GraveSense/GS_Util.lua")
 Script.ReloadScript("Scripts/GraveSense/GS_Enum.lua")
 
+Script.ReloadScript("Scripts/GraveSense/GS_Sanitizer.lua")
 -- (optional) bridge if you kept it as separate file
 Script.ReloadScript("Scripts/GraveSense/SanitizerBridge.lua")
 
