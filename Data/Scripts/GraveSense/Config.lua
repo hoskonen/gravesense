@@ -28,5 +28,15 @@ GraveSense_Config = {
         protectNames        = { bandage = true }, -- example
         protectClasses      = {},                 -- fill later if needed
     },
+    preCorpse   = {
+        enabled     = true, -- turn the pass on
+        hpThreshold = 0.12, -- ≤ 2% HP counts as doomed
+        rangeM      = 10.0, -- same radius as death probe
+        debounceMs  = 4000, -- don’t spam the same target
+        delayMs     = 0,    -- optional tiny delay before sanitize
+    },
+    logging     = { preCorpseTrace = true }
+
+    -- sanitize { enabled=true, dryRun=true/false, skipMoney=true, unequipBeforeDelete=true, ... }
 
 }

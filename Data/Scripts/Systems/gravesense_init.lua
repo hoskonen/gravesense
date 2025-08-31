@@ -3,6 +3,7 @@ Script.ReloadScript("Scripts/GraveSense/GraveSense.lua")
 
 -- Phase B helpers (read-only)
 Script.ReloadScript("Scripts/GraveSense/GS_Util.lua")
+Script.ReloadScript("Scripts/GraveSense/GS_Inv.lua")
 Script.ReloadScript("Scripts/GraveSense/GS_Enum.lua")
 
 Script.ReloadScript("Scripts/GraveSense/GS_Sanitizer.lua")

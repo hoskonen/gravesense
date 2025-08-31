@@ -3,17 +3,18 @@
 
 GraveSense     = GraveSense or {}
 local GS       = GraveSense
+local GetPlayer
 
 -- State
-GS._hbActive   = false      -- heartbeat loop running?
-GS._cbActive   = false      -- combat loop running?
+GS._hbActive   = false -- heartbeat loop running?
+GS._cbActive   = false -- combat loop running?
 GS._inCombat   = false
 GS._ticksHB    = 0
 GS._ticksCB    = 0
-GS._seenDead   = {}      -- [wuid]=true (to avoid re-logging same corpse)
+GS._seenDead   = {} -- [wuid]=true (to avoid re-logging same corpse)
 
 -- Subscribers
-GS._pipesDeath = {}      -- list of callbacks (fn(meta))
+GS._pipesDeath = {} -- list of callbacks (fn(meta))
 function GraveSense.onDeathUse(fn) GS._pipesDeath[#GS._pipesDeath + 1] = fn end
 
 -- Latest death metadata (for debugging/manual bridge)
@@ -31,8 +32,9 @@ local function _fireDeath(meta)
 end
 
 -- Death queue (read-only handoff; no mutations)
-GS._dq = {}    -- array of {timeMs, wuid, entity, name, pos}
-GS._dqMax = 32 -- cap
+GS._dq = {}                         -- array of {timeMs, wuid, entity, name, pos}
+GS._dqMax = 32                      -- cap
+GS._preSeenAt = GS._preSeenAt or {} -- [wuid]=lastTimeMs for pre-corpse fire
 
 -- ===== config: defaults + overrides loader =====
 -- Defaults live in code; overrides come from Scripts/GraveSense/Config.lua (if present)
@@ -63,6 +65,61 @@ local function _applyOverrides(dst, src)
         end
     end
 end
+
+local function GetHealth01(e)
+    if not e then return nil end
+    -- soul path (preferred)
+    local soul = e.soul
+    if soul and soul.GetHealth then
+        local okh, h = pcall(soul.GetHealth, soul)
+        if okh and h then
+            -- try explicit max if exposed
+            if soul.GetHealthMax then
+                local okm, m = pcall(soul.GetHealthMax, soul)
+                if okm and m and m > 0 then return math.max(0, math.min(1, h / m)) end
+            end
+            -- if value already 0..1, accept
+            if h >= 0 and h <= 1 then return h end
+            -- if clearly absolute, try actor max
+            if e.actor and e.actor.GetMaxHealth then
+                local okm, m = pcall(e.actor.GetMaxHealth, e.actor)
+                if okm and m and m > 0 then return math.max(0, math.min(1, h / m)) end
+            end
+        end
+    end
+    -- actor path
+    local a = e.actor
+    if a and a.GetHealth then
+        local okh, h = pcall(a.GetHealth, a)
+        if okh and h then
+            if h >= 0 and h <= 1 then return h end
+            if a.GetMaxHealth then
+                local okm, m = pcall(a.GetMaxHealth, a)
+                if okm and m and m > 0 then return math.max(0, math.min(1, h / m)) end
+            end
+        end
+    end
+    -- last resort: properties sometimes expose a health fraction
+    if e.health01 then return math.max(0, math.min(1, e.health01)) end
+    return nil
+end
+
+
+local function IsHostileToPlayer(e)
+    local p = GetPlayer(); if not (e and p) then return false end
+    for _, fn in ipairs({ "IsHostileTo", "IsHostile", "IsEnemyTo", "IsEnemy", "IsAggressiveTo" }) do
+        local f = e[fn]; if type(f) == "function" then
+            local ok, res = pcall(f, e, p); if ok and res then return true end
+        end
+    end
+    if e.GetFaction and p.GetFaction then
+        local oke, ef = pcall(e.GetFaction, e)
+        local okp, pf = pcall(p.GetFaction, p)
+        if oke and okp and ef and pf and ef ~= pf then return true end
+    end
+    return false
+end
+
 
 function GraveSense.ReloadConfig()
     -- reset to defaults
@@ -129,7 +186,7 @@ end
 local function Log(s) System.LogAlways("[GraveSense] " .. tostring(s)) end
 
 -- Helpers
-local function GetPlayer()
+GetPlayer = function()
     return (System.GetEntityByName and (System.GetEntityByName("Henry") or System.GetEntityByName("dude"))) or nil
 end
 
@@ -220,15 +277,89 @@ function GraveSense.CombatTick()
     if (not GS._cbActive) or (not GS._inCombat) then return end
     GS._ticksCB = GS._ticksCB + 1
 
-    -- scan for newly-dead enemies near player
-    -- scan for newly-dead enemies near player
-    local p = GetPlayer()
+    local cfg   = GS.cfg or {}
+    local pc    = cfg.preCorpse or {}
+    local p     = GetPlayer()
     if p and p.GetWorldPos then
         local pos  = p:GetWorldPos()
-        local R    = GS.cfg.scanRadiusM or 8.0
+        local R    = (pc.rangeM or cfg.scanRadiusM or 8.0)
+        -- one query used for both dead + pre-corpse passes
         local list = (System.GetEntitiesInSphere and System.GetEntitiesInSphere(pos, R)) or System.GetEntities() or {}
         local r2   = R * R
+        local now  = (System.GetCurrTime and math.floor(System.GetCurrTime() * 1000)) or
+            math.floor((os.clock() or 0) * 1000)
 
+        -- pass 1: pre-corpse (low-HP live sanitize)
+        if pc.enabled ~= false then
+            for i = 1, #list do
+                local e = list[i]
+                if e and e ~= p and e.GetWorldPos then
+                    local ep = e:GetWorldPos()
+                    local inside = System.GetEntitiesInSphere and true or (Dist2(pos, ep) <= r2)
+                    if inside then
+                        -- light actor check to skip props
+                        local isActor = (e.soul or e.actor) and true or false
+                        local dead    = IsEntityDead(e)
+                        local hp01    = GetHealth01(e) -- may be nil
+                        local hostile = false
+                        if isActor then
+                            local ok, res = pcall(IsHostileToPlayer, e)
+                            hostile = ok and res or false
+                        end
+
+                        -- TRACE early (so we see why it didn't fire)
+                        if GS.cfg and GS.cfg.logging and GS.cfg.logging.preCorpseTrace then
+                            if (hp01 == nil) or (hp01 <= 0.30) then
+                                Log(("[preTrace] %s: in=%s actor=%s hostile=%s dead=%s hp01=%s")
+                                    :format((e.GetName and e:GetName()) or e.class or "entity",
+                                        inside and "T" or "F", isActor and "T" or "F",
+                                        hostile and "T" or "F", dead and "T" or "F",
+                                        hp01 and string.format("%.3f", hp01) or "nil"))
+                            end
+                        end
+
+                        -- gate for action
+                        if isActor and (not dead) and (hp01 and hp01 <= (pc.hpThreshold or 0.02)) and (hostile or GS._inCombat) then
+                            local w    = GetWUID(e)
+                            local last = GS._preSeenAt[w]
+                            if (not last) or (now - last) >= (pc.debounceMs or 4000) then
+                                GS._preSeenAt[w] = now
+                                local name = (e.GetName and e:GetName()) or e.class or "entity"
+                                Log(("⚡ pre-corpse: %s hp=%.3f (wuid=%s) — sanitizing %s")
+                                    :format(tostring(name), hp01, tostring(w),
+                                        ((cfg.sanitize and cfg.sanitize.dryRun) ~= false) and "(dry-run)" or "(live)"))
+
+                                if GS_Sanitizer and GS_Sanitizer.nukeInventory then
+                                    local delay  = pc.delayMs or 0
+                                    local victim = e
+                                    if Script and Script.SetTimerForFunction and delay > 0 then
+                                        GraveSense.__DoPreSan = function()
+                                            local ok, err = pcall(GS_Sanitizer.nukeInventory, victim,
+                                                { corpseCtx = false })
+                                            if not ok then
+                                                System.LogAlways("[GraveSense][Pre] sanitize error: " ..
+                                                    tostring(err))
+                                            end
+                                            GraveSense.__DoPreSan = nil; _G["GraveSense.__DoPreSan"] = nil
+                                        end
+                                        _G["GraveSense.__DoPreSan"] = GraveSense.__DoPreSan
+                                        Script.SetTimerForFunction(delay, "GraveSense.__DoPreSan")
+                                    else
+                                        local ok, err = pcall(GS_Sanitizer.nukeInventory, victim, { corpseCtx = false })
+                                        if not ok then
+                                            System.LogAlways("[GraveSense][Pre] sanitize error: " ..
+                                                tostring(err))
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
+        -- pass 2: death detect (fires bus)
         for i = 1, #list do
             local e = list[i]
             if e and e ~= p and e.GetWorldPos then
@@ -236,16 +367,12 @@ function GraveSense.CombatTick()
                 local inside = System.GetEntitiesInSphere and true or (Dist2(pos, ep) <= r2)
                 if inside and IsEntityDead(e) then
                     local w    = GetWUID(e)
-                    local now  = (System.GetCurrTime and math.floor(System.GetCurrTime() * 1000)) or
-                        math.floor((os.clock() or 0) * 1000)
                     local last = GS._seenDeadAt[w]
                     if not last or (now - last) >= DEBOUNCE_MS() then
                         GS._seenDeadAt[w] = now
                         local nm = (e.GetName and e:GetName()) or (e.class or "entity")
-                        if GS.cfg.debug then Log("☠ death detected: " .. tostring(nm) .. " (wuid=" .. tostring(w) .. ")") end
-
-                        -- build once, then queue + fire once
-                        local rec = {
+                        if cfg.debug then Log("☠ death detected: " .. tostring(nm) .. " (wuid=" .. tostring(w) .. ")") end
+                        _dqPush({
                             entity = e,
                             wuid = w,
                             name = nm,
@@ -254,18 +381,26 @@ function GraveSense.CombatTick()
                             radius = R,
                             ticks = GS
                                 ._ticksCB
-                        }
-                        _dqPush(rec)
-                        _fireDeath(rec)
+                        })
+                        _fireDeath({
+                            entity = e,
+                            wuid = w,
+                            name = nm,
+                            pos = ep,
+                            timeMs = now,
+                            radius = R,
+                            ticks = GS
+                                ._ticksCB
+                        })
                     end
                 end
             end
         end
     end
 
-
     if Script and Script.SetTimerForFunction then
-        Script.SetTimerForFunction(GS.cfg.combatMs, "GraveSense.CombatTick")
+        local ms = tonumber(cfg.combatMs or 1000) or 1000
+        Script.SetTimerForFunction(ms, "GraveSense.CombatTick")
     end
 end
 
@@ -343,4 +478,30 @@ function GraveSense.DebugDumpLatest()
     end
     local rows, how = GS_Enum.enumSubject(d.entity)
     GS_Enum.logInventoryRows(d.entity, rows, how)
+end
+
+function GraveSense.TestLiveSanitize()
+    local p = GetPlayer(); if not (p and p.GetWorldPos) then
+        System.LogAlways("[GraveSense] no player"); return
+    end
+    local pos       = p:GetWorldPos()
+    local R         = (GS.cfg and GS.cfg.preCorpse and GS.cfg.preCorpse.rangeM) or 10.0
+    local list      = (System.GetEntitiesInSphere and System.GetEntitiesInSphere(pos, R)) or System.GetEntities() or {}
+    local best, bd2 = nil, 1e9
+    for i = 1, #list do
+        local e = list[i]
+        if e and e ~= p and e.GetWorldPos and not IsEntityDead(e) then
+            local ep = e:GetWorldPos()
+            local dx, dy, dz = ep.x - pos.x, ep.y - pos.y, ep.z - pos.z
+            local d2 = dx * dx + dy * dy + dz * dz
+            if d2 < bd2 then best, bd2 = e, d2 end
+        end
+    end
+    if not best then
+        System.LogAlways("[GraveSense] TestLiveSanitize: no live target"); return
+    end
+    System.LogAlways("[GraveSense] TestLiveSanitize → " .. ((best.GetName and best:GetName()) or best.class or "entity"))
+    if GS_Sanitizer and GS_Sanitizer.nukeInventory then
+        GS_Sanitizer.nukeInventory(best, { corpseCtx = false })
+    end
 end
