@@ -21,7 +21,10 @@ function GraveSense.onDeathUse(fn) GS._pipesDeath[#GS._pipesDeath + 1] = fn end
 GS._latestDeath = nil
 
 -- Debounce (avoid re-firing for the same corpse too often)
-GS._seenDeadAt = {} -- [wuid] = lastFireMs
+GS._seenDeadAt  = {} -- [wuid] = lastFireMs
+
+GS._preSeenAt   = GS._preSeenAt or {}
+GS._hp01Last    = GS._hp01Last or {}
 
 local function _fireDeath(meta)
     GS._latestDeath = meta
@@ -272,6 +275,45 @@ local function DEBOUNCE_MS()
     return (GS.cfg and GS.cfg.debounceMs) or 15000
 end
 
+-- Lua 5.1-safe, defensive 0..1 health
+local function GetHealth01_Strong(e)
+    if not e then return nil end
+
+    -- 1) soul path
+    local s = e.soul
+    if s then
+        local okH, H = pcall(s.GetHealth, s)
+        if okH and H then
+            local okM, M = pcall(s.GetHealthMax, s)
+            if okM and M and M > 0 then return math.max(0, math.min(1, H / M)) end
+            if H >= 0 and H <= 1 then return H end
+        end
+    end
+
+    -- 2) actor path
+    local a = e.actor
+    if a then
+        local okH, H = pcall(a.GetHealth, a)
+        if okH and H then
+            if H >= 0 and H <= 1 then return H end
+            local okM, M = pcall(a.GetMaxHealth, a)
+            if okM and M and M > 0 then return math.max(0, math.min(1, H / M)) end
+        end
+    end
+
+    -- 3) common ad-hoc fields used by some builds
+    if e.health01 then
+        local h = e.health01
+        if h >= 0 and h <= 1 then return h end
+    end
+    if e.health and e.maxHealth and e.maxHealth > 0 then
+        return math.max(0, math.min(1, e.health / e.maxHealth))
+    end
+
+    return nil
+end
+
+
 -- ========== COMBAT TICK (every 1s while in combat) ==========
 function GraveSense.CombatTick()
     if (not GS._cbActive) or (not GS._inCombat) then return end
@@ -289,49 +331,69 @@ function GraveSense.CombatTick()
         local now  = (System.GetCurrTime and math.floor(System.GetCurrTime() * 1000)) or
             math.floor((os.clock() or 0) * 1000)
 
-        -- pass 1: pre-corpse (low-HP live sanitize)
+        -- pass 1: pre-corpse (live sanitize) — FIRST PASS
         if pc.enabled ~= false then
             for i = 1, #list do
                 local e = list[i]
                 if e and e ~= p and e.GetWorldPos then
-                    local ep = e:GetWorldPos()
+                    local ep     = e:GetWorldPos()
                     local inside = System.GetEntitiesInSphere and true or (Dist2(pos, ep) <= r2)
                     if inside then
-                        -- light actor check to skip props
                         local isActor = (e.soul or e.actor) and true or false
                         local dead    = IsEntityDead(e)
-                        local hp01    = GetHealth01(e) -- may be nil
                         local hostile = false
                         if isActor then
-                            local ok, res = pcall(IsHostileToPlayer, e)
-                            hostile = ok and res or false
+                            local okHst, res = pcall(IsHostileToPlayer, e); hostile = okHst and res or false
                         end
 
-                        -- TRACE early (so we see why it didn't fire)
+                        local hp01  = GetHealth01_Strong(e)
+                        local w     = GetWUID(e)
+                        local hLast = GS._hp01Last[w]
+
+                        -- trace early
                         if GS.cfg and GS.cfg.logging and GS.cfg.logging.preCorpseTrace then
-                            if (hp01 == nil) or (hp01 <= 0.30) then
-                                Log(("[preTrace] %s: in=%s actor=%s hostile=%s dead=%s hp01=%s")
+                            if (hp01 == nil) or (hp01 <= 0.60) then
+                                Log(("[preTrace] %s: in=%s actor=%s hostile=%s dead=%s hp01=%s last=%s")
                                     :format((e.GetName and e:GetName()) or e.class or "entity",
                                         inside and "T" or "F", isActor and "T" or "F",
                                         hostile and "T" or "F", dead and "T" or "F",
-                                        hp01 and string.format("%.3f", hp01) or "nil"))
+                                        hp01 and string.format("%.3f", hp01) or "nil",
+                                        hLast and string.format("%.3f", hLast) or "nil"))
                             end
                         end
 
-                        -- gate for action
-                        if isActor and (not dead) and (hp01 and hp01 <= (pc.hpThreshold or 0.02)) and (hostile or GS._inCombat) then
-                            local w    = GetWUID(e)
+                        -- decide
+                        local should = false
+                        if isActor and not dead then
+                            if hp01 ~= nil then
+                                local low  = (hp01 <= (pc.hpThreshold or 0.02))
+                                local drop = (hLast ~= nil) and ((hLast - hp01) >= (pc.deltaThreshold or 0.20))
+                                should     = low or drop
+                            else
+                                -- HP unknown: allow if we're in combat and target is actor; optionally require hostile
+                                if pc.forceWhenUnknownHp and (GS._inCombat) and (hostile or true) then
+                                    should = true
+                                end
+                            end
+                        end
+
+                        -- update cache after decision (so drop computes correctly next tick)
+                        if hp01 ~= nil then GS._hp01Last[w] = hp01 end
+
+                        if should then
                             local last = GS._preSeenAt[w]
                             if (not last) or (now - last) >= (pc.debounceMs or 4000) then
                                 GS._preSeenAt[w] = now
                                 local name = (e.GetName and e:GetName()) or e.class or "entity"
-                                Log(("⚡ pre-corpse: %s hp=%.3f (wuid=%s) — sanitizing %s")
-                                    :format(tostring(name), hp01, tostring(w),
+                                Log(("⚡ pre-corpse: %s hp=%s (wuid=%s) — sanitizing %s")
+                                    :format(tostring(name),
+                                        hp01 and string.format("%.3f", hp01) or "nil",
+                                        tostring(w),
                                         ((cfg.sanitize and cfg.sanitize.dryRun) ~= false) and "(dry-run)" or "(live)"))
 
                                 if GS_Sanitizer and GS_Sanitizer.nukeInventory then
-                                    local delay  = pc.delayMs or 0
                                     local victim = e
+                                    local delay  = pc.delayMs or 0
                                     if Script and Script.SetTimerForFunction and delay > 0 then
                                         GraveSense.__DoPreSan = function()
                                             local ok, err = pcall(GS_Sanitizer.nukeInventory, victim,
@@ -358,6 +420,7 @@ function GraveSense.CombatTick()
                 end
             end
         end
+
 
         -- pass 2: death detect (fires bus)
         for i = 1, #list do

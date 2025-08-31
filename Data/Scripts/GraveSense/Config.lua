@@ -8,7 +8,7 @@ GraveSense_Config = {
     debug       = true,  -- show ENTER/EXIT & startup logs
 
     -- combat loop (death probe)
-    combatMs    = 1000,  -- 1s while in combat
+    combatMs    = 250,   -- 1s while in combat
     scanRadiusM = 8.0,   -- meters for death probe radius
     debounceMs  = 15000, -- ignore same corpse for this long
     enabled     = true,  -- master enable for the whole module
@@ -29,11 +29,13 @@ GraveSense_Config = {
         protectClasses      = {},                 -- fill later if needed
     },
     preCorpse   = {
-        enabled     = true, -- turn the pass on
-        hpThreshold = 0.12, -- ≤ 2% HP counts as doomed
-        rangeM      = 10.0, -- same radius as death probe
-        debounceMs  = 4000, -- don’t spam the same target
-        delayMs     = 0,    -- optional tiny delay before sanitize
+        enabled            = true,
+        hpThreshold        = 0.50, -- wide for proving; tune down later
+        deltaThreshold     = 0.20, -- fire if hp drops >= 20% between ticks
+        rangeM             = 10.0,
+        debounceMs         = 1500,
+        delayMs            = 0,
+        forceWhenUnknownHp = true, -- <— important for your build
     },
     logging     = { preCorpseTrace = true }
 
