@@ -5,9 +5,9 @@ GraveSense          = GraveSense or {}
 local GS            = GraveSense
 
 -- Tunables
-local HEARTBEAT_MS  = 3000  -- "Polling for combat.." cadence
-local COMBAT_MS     = 1000  -- death probe cadence while in combat
-local SCAN_RADIUS_M = 8.0   -- meters for death probe
+local HEARTBEAT_MS  = 3000 -- "Polling for combat.." cadence
+local COMBAT_MS     = 1000 -- death probe cadence while in combat
+local SCAN_RADIUS_M = 8.0  -- meters for death probe
 
 -- State
 GS._hbActive        = false -- heartbeat loop running?
@@ -16,6 +16,27 @@ GS._inCombat        = false
 GS._ticksHB         = 0
 GS._ticksCB         = 0
 GS._seenDead        = {} -- [wuid]=true (to avoid re-logging same corpse)
+
+-- Subscribers
+GS._pipesDeath      = {} -- list of callbacks (fn(meta))
+function GraveSense.onDeathUse(fn) GS._pipesDeath[#GS._pipesDeath + 1] = fn end
+
+-- Latest death metadata (for debugging/manual bridge)
+GS._latestDeath = nil
+
+-- Debounce (avoid re-firing for the same corpse too often)
+local DEATH_DEBOUNCE_MS = 15000 -- 15s window per WUID
+GS._seenDeadAt = {}             -- [wuid] = lastFireMs
+
+local function _fireDeath(meta)
+    GS._latestDeath = meta
+    for i = 1, #GS._pipesDeath do
+        local ok, err = pcall(GS._pipesDeath[i], meta)
+        if not ok then System.LogAlways("[GraveSense] death pipe error: " .. tostring(err)) end
+    end
+end
+
+function GraveSense.GetLatestDeath() return GS._latestDeath end
 
 -- Logging
 local function Log(s) System.LogAlways("[GraveSense] " .. tostring(s)) end
@@ -109,7 +130,7 @@ function GraveSense.CombatTick()
     if p and p.GetWorldPos then
         local pos = p:GetWorldPos()
         local list = (System.GetEntitiesInSphere and System.GetEntitiesInSphere(pos, SCAN_RADIUS_M)) or
-        System.GetEntities() or {}
+            System.GetEntities() or {}
         local r2 = SCAN_RADIUS_M * SCAN_RADIUS_M
         for i = 1, #list do
             local e = list[i]
@@ -118,10 +139,22 @@ function GraveSense.CombatTick()
                 local inside = System.GetEntitiesInSphere and true or (Dist2(pos, ep) <= r2)
                 if inside and IsEntityDead(e) then
                     local w = GetWUID(e)
-                    if not GS._seenDead[w] then
-                        GS._seenDead[w] = true
+                    local now = System.GetCurrTime and math.floor(System.GetCurrTime() * 1000) or
+                    math.floor((os.clock() or 0) * 1000)
+                    local last = GS._seenDeadAt[w]
+                    if not last or (now - last) >= DEATH_DEBOUNCE_MS then
+                        GS._seenDeadAt[w] = now
                         local nm = (e.GetName and e:GetName()) or (e.class or "entity")
                         Log("☠ death detected: " .. tostring(nm) .. " (wuid=" .. tostring(w) .. ")")
+                        _fireDeath({
+                            entity = e,
+                            wuid   = w,
+                            name   = nm,
+                            pos    = ep,
+                            timeMs = now,
+                            radius = SCAN_RADIUS_M,
+                            ticks  = GS._ticksCB,
+                        })
                     end
                 end
             end
