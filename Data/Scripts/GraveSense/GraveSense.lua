@@ -25,8 +25,7 @@ function GraveSense.onDeathUse(fn) GS._pipesDeath[#GS._pipesDeath + 1] = fn end
 GS._latestDeath = nil
 
 -- Debounce (avoid re-firing for the same corpse too often)
-local DEATH_DEBOUNCE_MS = GS.cfg.debounceMs or 15000 -- 15s window per WUID
-GS._seenDeadAt = {}                                  -- [wuid] = lastFireMs
+GS._seenDeadAt = {} -- [wuid] = lastFireMs
 
 local function _fireDeath(meta)
     GS._latestDeath = meta
@@ -217,53 +216,49 @@ end
 
 _G["GraveSense.HeartbeatTick"] = GraveSense.HeartbeatTick
 
+local function DEBOUNCE_MS()
+    return (GS.cfg and GS.cfg.debounceMs) or 15000
+end
+
 -- ========== COMBAT TICK (every 1s while in combat) ==========
 function GraveSense.CombatTick()
     if (not GS._cbActive) or (not GS._inCombat) then return end
     GS._ticksCB = GS._ticksCB + 1
 
     -- scan for newly-dead enemies near player
+    -- scan for newly-dead enemies near player
     local p = GetPlayer()
     if p and p.GetWorldPos then
-        local pos = p:GetWorldPos()
-        local list = (System.GetEntitiesInSphere and System.GetEntitiesInSphere(pos, SCAN_RADIUS_M)) or
-            System.GetEntities() or {}
-        local r2 = GS.cfg.scanRadiusM or 8.0
+        local pos  = p:GetWorldPos()
+        local R    = GS.cfg.scanRadiusM or 8.0
+        local list = (System.GetEntitiesInSphere and System.GetEntitiesInSphere(pos, R)) or System.GetEntities() or {}
+        local r2   = R * R
+
         for i = 1, #list do
             local e = list[i]
             if e and e ~= p and e.GetWorldPos then
                 local ep = e:GetWorldPos()
                 local inside = System.GetEntitiesInSphere and true or (Dist2(pos, ep) <= r2)
                 if inside and IsEntityDead(e) then
-                    local w = GetWUID(e)
-                    local now = System.GetCurrTime and math.floor(System.GetCurrTime() * 1000) or
+                    local w    = GetWUID(e)
+                    local now  = (System.GetCurrTime and math.floor(System.GetCurrTime() * 1000)) or
                         math.floor((os.clock() or 0) * 1000)
                     local last = GS._seenDeadAt[w]
-                    if not last or (now - last) >= DEATH_DEBOUNCE_MS then
+                    if not last or (now - last) >= DEBOUNCE_MS() then
                         GS._seenDeadAt[w] = now
                         local nm = (e.GetName and e:GetName()) or (e.class or "entity")
-                        if GS.cfg.debug then
-                            Log("☠ death detected: " .. tostring(nm) .. " (wuid=" .. tostring(w) .. ")")
-                        end
-                        _fireDeath({
-                            entity = e,
-                            wuid   = w,
-                            name   = nm,
-                            pos    = ep,
-                            timeMs = now,
-                            radius = SCAN_RADIUS_M,
-                            ticks  = GS._ticksCB,
-                        })
+                        if GS.cfg.debug then Log("☠ death detected: " .. tostring(nm) .. " (wuid=" .. tostring(w) .. ")") end
 
+                        -- build once, then queue + fire once
                         local rec = {
                             entity = e,
                             wuid = w,
                             name = nm,
                             pos = ep,
                             timeMs = now,
-                            radius = SCAN_RADIUS_M,
+                            radius = R,
                             ticks = GS
-                                ._ticksCB,
+                                ._ticksCB
                         }
                         _dqPush(rec)
                         _fireDeath(rec)
@@ -272,6 +267,7 @@ function GraveSense.CombatTick()
             end
         end
     end
+
 
     if Script and Script.SetTimerForFunction then
         Script.SetTimerForFunction(GS.cfg.combatMs, "GraveSense.CombatTick")
@@ -288,7 +284,6 @@ if GraveSense and GraveSense.onDeathUse then
     end)
 end
 
-
 -- ========== LIFECYCLE ==========
 function GraveSense.StartHeartbeat()
     if GS._hbActive then
@@ -297,9 +292,7 @@ function GraveSense.StartHeartbeat()
     end
     GS._hbActive = true
     GS._ticksHB  = 0
-    if GS.cfg.debug then
-        Log(string.format("Heartbeat started (%.1fs)", HEARTBEAT_MS / 1000))
-    end
+    if GS.cfg.debug then Log(string.format("Heartbeat started (%.1fs)", (GS.cfg.heartbeatMs or 0) / 1000)) end
     GraveSense.HeartbeatTick()
 end
 
@@ -308,7 +301,7 @@ function GraveSense.StartCombatLoop()
     GS._cbActive = true
     GS._ticksCB  = 0
     GS._seenDead = {} -- reset per combat
-    Log(string.format("Combat loop started (%.1fs)", COMBAT_MS / 1000))
+    Log(string.format("Combat loop started (%.1fs)", (GS.cfg.combatMs or 0) / 1000))
     GraveSense.CombatTick()
 end
 
