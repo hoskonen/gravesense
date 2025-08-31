@@ -1,6 +1,11 @@
 System.LogAlways("[GraveSense] systems init: loading Scripts/GraveSense/GraveSense.lua")
-Script.ReloadScript("Scripts/GraveSense/Config.lua")
 Script.ReloadScript("Scripts/GraveSense/GraveSense.lua")
+
+-- Phase B helpers (read-only)
+Script.ReloadScript("Scripts/GraveSense/GS_Util.lua")
+Script.ReloadScript("Scripts/GraveSense/GS_Enum.lua")
+
+-- (optional) bridge if you kept it as separate file
 Script.ReloadScript("Scripts/GraveSense/SanitizerBridge.lua")
 
 -- Register gameplay start (ensures heartbeat after world loads)

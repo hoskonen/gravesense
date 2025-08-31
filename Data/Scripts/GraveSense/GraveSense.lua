@@ -339,3 +339,13 @@ function GraveSense.Reboot()
     GraveSense.ReloadConfig()
     GraveSense.StartHeartbeat()
 end
+
+function GraveSense.DebugDumpLatest()
+    local d = GraveSense.GetLatestDeath and GraveSense.GetLatestDeath()
+    if not d or not d.entity then
+        System.LogAlways("[GraveSense] no deaths to dump")
+        return
+    end
+    local rows, how = GS_Enum.enumSubject(d.entity)
+    GS_Enum.logInventoryRows(d.entity, rows, how)
+end
