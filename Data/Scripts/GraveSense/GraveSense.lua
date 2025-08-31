@@ -36,7 +36,26 @@ local function _fireDeath(meta)
     end
 end
 
-function GraveSense.GetLatestDeath() return GS._latestDeath end
+-- Death queue (read-only handoff; no mutations)
+GS._dq = {}    -- array of {timeMs, wuid, entity, name, pos}
+GS._dqMax = 32 -- cap
+
+local function _dqPush(rec)
+    local q = GS._dq
+    q[#q + 1] = rec
+    if #q > (GS._dqMax or 32) then table.remove(q, 1) end
+end
+
+function GraveSense.GetLatestDeath()
+    return GS._dq[#GS._dq]
+end
+
+function GraveSense.DrainDeaths()
+    local q = GS._dq
+    local out = q
+    GS._dq = {}
+    return out
+end
 
 -- Logging
 local function Log(s) System.LogAlways("[GraveSense] " .. tostring(s)) end
@@ -155,6 +174,13 @@ function GraveSense.CombatTick()
                             radius = SCAN_RADIUS_M,
                             ticks  = GS._ticksCB,
                         })
+
+                        local rec = {
+                            entity = e, wuid = w, name = nm, pos = ep, timeMs = now, radius = SCAN_RADIUS_M, ticks = GS
+                        ._ticksCB,
+                        }
+                        _dqPush(rec)
+                        _fireDeath(rec)
                     end
                 end
             end
