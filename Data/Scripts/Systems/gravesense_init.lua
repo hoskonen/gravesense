@@ -1,7 +1,7 @@
 System.LogAlways("[GraveSense] systems init: loading Scripts/GraveSense/GraveSense.lua")
+Script.ReloadScript("Scripts/GraveSense/Config.lua")
 Script.ReloadScript("Scripts/GraveSense/GraveSense.lua")
 Script.ReloadScript("Scripts/GraveSense/SanitizerBridge.lua")
-
 
 -- Register gameplay start (ensures heartbeat after world loads)
 if UIAction and UIAction.RegisterEventSystemListener then

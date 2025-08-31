@@ -1,0 +1,23 @@
+-- Scripts/GraveSense/Config.lua
+-- Overrides for GraveSense (Lua 5.1). Leave out any key you don't want to override.
+
+GraveSense_Config = {
+    -- heartbeat (combat polling)
+    heartbeatMs = 3000, -- 3s poll for combat
+    traceTicks  = false, -- true = log every heartbeat tick
+    debug       = true, -- show ENTER/EXIT & startup logs
+
+    -- combat loop (death probe)
+    combatMs    = 1000, -- 1s while in combat
+    scanRadiusM = 8.0, -- meters for death probe radius
+    debounceMs  = 15000, -- ignore same corpse for this long
+    enabled     = true, -- master enable for the whole module
+
+    -- bridge/sanitizer (we'll use later; harmless now)
+    bridge      = {
+        enabled         = true, -- subscribe to the death bus
+        sanitizeOnDeath = false, -- keep OFF for now
+        delayMs         = 200,
+        dryRun          = true,
+    },
+}

@@ -25,8 +25,8 @@ function GraveSense.onDeathUse(fn) GS._pipesDeath[#GS._pipesDeath + 1] = fn end
 GS._latestDeath = nil
 
 -- Debounce (avoid re-firing for the same corpse too often)
-local DEATH_DEBOUNCE_MS = 15000 -- 15s window per WUID
-GS._seenDeadAt = {}             -- [wuid] = lastFireMs
+local DEATH_DEBOUNCE_MS = GS.cfg.debounceMs or 15000 -- 15s window per WUID
+GS._seenDeadAt = {}                                  -- [wuid] = lastFireMs
 
 local function _fireDeath(meta)
     GS._latestDeath = meta
@@ -39,6 +39,80 @@ end
 -- Death queue (read-only handoff; no mutations)
 GS._dq = {}    -- array of {timeMs, wuid, entity, name, pos}
 GS._dqMax = 32 -- cap
+
+-- ===== config: defaults + overrides loader =====
+-- Defaults live in code; overrides come from Scripts/GraveSense/Config.lua (if present)
+GS.cfg = {
+    enabled     = true,
+    heartbeatMs = 3000,
+    traceTicks  = false,
+    debug       = true,
+
+    combatMs    = 1000,
+    scanRadiusM = 8.0,
+    debounceMs  = 15000,
+
+    bridge      = {
+        enabled         = true,
+        sanitizeOnDeath = false,
+        delayMs         = 200,
+        dryRun          = true,
+    },
+}
+
+local function _applyOverrides(dst, src)
+    for k, v in pairs(src or {}) do
+        if type(v) == "table" and type(dst[k]) == "table" then
+            _applyOverrides(dst[k], v)
+        else
+            dst[k] = v
+        end
+    end
+end
+
+function GraveSense.ReloadConfig()
+    -- reset to defaults
+    GS.cfg = {
+        enabled     = true,
+        heartbeatMs = 3000,
+        traceTicks  = false,
+        debug       = true,
+
+        combatMs    = 1000,
+        scanRadiusM = 8.0,
+        debounceMs  = 15000,
+
+        bridge      = {
+            enabled         = true,
+            sanitizeOnDeath = false,
+            delayMs         = 200,
+            dryRun          = true,
+        },
+    }
+
+    -- load overrides
+    local ok = pcall(function()
+        Script.ReloadScript("Scripts/GraveSense/Config.lua")
+    end)
+
+    if ok and _G.GraveSense_Config and type(_G.GraveSense_Config) == "table" then
+        _applyOverrides(GS.cfg, _G.GraveSense_Config)
+        System.LogAlways(("[GraveSense] config loaded hb=%.1fs combat=%.1fs r=%.1fm debounce=%.1fs bridge=%s sanitizeOnDeath=%s")
+            :format(
+                (GS.cfg.heartbeatMs or 0) / 1000,
+                (GS.cfg.combatMs or 0) / 1000,
+                (GS.cfg.scanRadiusM or 0),
+                (GS.cfg.debounceMs or 0) / 1000,
+                tostring(GS.cfg.bridge and GS.cfg.bridge.enabled),
+                tostring(GS.cfg.bridge and GS.cfg.bridge.sanitizeOnDeath)
+            ))
+    else
+        System.LogAlways("[GraveSense] config defaults in effect (no overrides)")
+    end
+end
+
+-- call once during load
+GraveSense.ReloadConfig()
 
 local function _dqPush(rec)
     local q = GS._dq
@@ -118,10 +192,14 @@ function GraveSense.HeartbeatTick()
 
     local p = GetPlayer()
     if not p then
-        Log("Polling for combat.. (no player)")
+        if GS.cfg.debug then
+            Log("Polling for combat.. (no player)")
+        end
     else
         local ic = IsInCombatRaw(p)
-        Log("Polling for combat.. inCombat=" .. tostring(ic))
+        if GS.cfg.debug then
+            Log("Polling for combat.. inCombat=" .. tostring(ic))
+        end
 
         if ic and not GS._inCombat then
             GS._inCombat = true
@@ -133,7 +211,7 @@ function GraveSense.HeartbeatTick()
     end
 
     if Script and Script.SetTimerForFunction then
-        Script.SetTimerForFunction(HEARTBEAT_MS, "GraveSense.HeartbeatTick")
+        Script.SetTimerForFunction(GS.cfg.heartbeatMs, "GraveSense.HeartbeatTick")
     end
 end
 
@@ -150,7 +228,7 @@ function GraveSense.CombatTick()
         local pos = p:GetWorldPos()
         local list = (System.GetEntitiesInSphere and System.GetEntitiesInSphere(pos, SCAN_RADIUS_M)) or
             System.GetEntities() or {}
-        local r2 = SCAN_RADIUS_M * SCAN_RADIUS_M
+        local r2 = GS.cfg.scanRadiusM or 8.0
         for i = 1, #list do
             local e = list[i]
             if e and e ~= p and e.GetWorldPos then
@@ -164,7 +242,9 @@ function GraveSense.CombatTick()
                     if not last or (now - last) >= DEATH_DEBOUNCE_MS then
                         GS._seenDeadAt[w] = now
                         local nm = (e.GetName and e:GetName()) or (e.class or "entity")
-                        Log("☠ death detected: " .. tostring(nm) .. " (wuid=" .. tostring(w) .. ")")
+                        if GS.cfg.debug then
+                            Log("☠ death detected: " .. tostring(nm) .. " (wuid=" .. tostring(w) .. ")")
+                        end
                         _fireDeath({
                             entity = e,
                             wuid   = w,
@@ -176,8 +256,14 @@ function GraveSense.CombatTick()
                         })
 
                         local rec = {
-                            entity = e, wuid = w, name = nm, pos = ep, timeMs = now, radius = SCAN_RADIUS_M, ticks = GS
-                        ._ticksCB,
+                            entity = e,
+                            wuid = w,
+                            name = nm,
+                            pos = ep,
+                            timeMs = now,
+                            radius = SCAN_RADIUS_M,
+                            ticks = GS
+                                ._ticksCB,
                         }
                         _dqPush(rec)
                         _fireDeath(rec)
@@ -188,7 +274,7 @@ function GraveSense.CombatTick()
     end
 
     if Script and Script.SetTimerForFunction then
-        Script.SetTimerForFunction(COMBAT_MS, "GraveSense.CombatTick")
+        Script.SetTimerForFunction(GS.cfg.combatMs, "GraveSense.CombatTick")
     end
 end
 
@@ -211,7 +297,9 @@ function GraveSense.StartHeartbeat()
     end
     GS._hbActive = true
     GS._ticksHB  = 0
-    Log(string.format("Heartbeat started (%.1fs)", HEARTBEAT_MS / 1000))
+    if GS.cfg.debug then
+        Log(string.format("Heartbeat started (%.1fs)", HEARTBEAT_MS / 1000))
+    end
     GraveSense.HeartbeatTick()
 end
 
@@ -234,10 +322,27 @@ function GraveSense.StopAll(reason)
     GS._hbActive = false
     GS._cbActive = false
     GS._inCombat = false
-    Log("All loops stopped" .. (reason and (": " .. tostring(reason)) or ""))
+    if GS.cfg.debug then
+        Log("All loops stopped" .. (reason and (": " .. tostring(reason)) or ""))
+    end
 end
 
 function GraveSense.OnGameplayStarted()
-    Log("OnGameplayStarted → ensure heartbeat")
+    if GS.cfg.debug then
+        Log("OnGameplayStarted → ensure heartbeat")
+    end
+    GraveSense.StartHeartbeat()
+end
+
+function GraveSense.DebugConfig()
+    local c = GS.cfg
+    System.LogAlways(("[GraveSense] cfg: enabled=%s hb=%dms cb=%dms r=%.1fm debounce=%dms trace=%s debug=%s")
+        :format(tostring(c.enabled), c.heartbeatMs, c.combatMs, c.scanRadiusM, c.debounceMs, tostring(c.traceTicks),
+            tostring(c.debug)))
+end
+
+function GraveSense.Reboot()
+    GraveSense.StopAll("reboot")
+    GraveSense.ReloadConfig()
     GraveSense.StartHeartbeat()
 end
