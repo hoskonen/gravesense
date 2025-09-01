@@ -139,6 +139,24 @@ function GS_Sanitizer.nukeInventory(subject, opts)
     Log(("ctx: corpse=%s (opts.corpseCtx=%s)"):format(tostring(isDeadNow), tostring(opts and opts.corpseCtx)))
     Log(("owner ptr: inv=%s subject=%s"):format(tostring(subject and subject.inventory), tostring(subject)))
 
+    local inv = subject and subject.inventory
+    local owner = (subject and ((subject.GetName and subject:GetName()) or subject.class)) or "entity"
+    local isCorpse = IsEntityDead and IsEntityDead(subject) or false
+    Log(("ctx: corpse=%s (opts.corpseCtx=%s)"):format(tostring(isCorpse), tostring(opts and opts.corpseCtx)))
+    Log(("owner ptr: inv=%s subject=%s"):format(tostring(inv), tostring(subject)))
+
+    -- hard read-only/virtual guards if exposed in your build
+    local function invBool(fn)
+        if inv and inv[fn] then
+            local ok, v = pcall(inv[fn], inv); if ok and v ~= nil then return v end
+        end; return nil
+    end
+    local ro  = invBool("IsReadOnly")
+    local vir = invBool("IsVirtual")
+    if ro ~= nil then Log(("inventory readonly? %s"):format(tostring(ro))) end
+    if vir ~= nil then Log(("inventory virtual?  %s"):format(tostring(vir))) end
+
+
     local C = cfg()
 
     local rowsBefore = enumInventory(subject)
@@ -181,25 +199,21 @@ function GS_Sanitizer.nukeInventory(subject, opts)
     for i = 1, #rows do
         local r = rows[i]
         local yes, why = shouldDelete(r, C)
-        if yes then
+
+        if not yes then
+            keepCount = keepCount + 1
+            Log(("  keep (%s): %s"):format(why, r.name))
+        else
             delCount = delCount + 1
+
             if dry then
                 Log(("  would delete: %s (class=%s handle=%s)"):format(r.name, tostring(r.class), tostring(r.handle)))
             else
-                if C.unequipBeforeDelete then tryUnequip(subject, r.handle) end
-
-                -- E1: (optional) owner pointer sanity if the item exposes one
-                local it = r.item or (ItemManager and ItemManager.GetItem and ItemManager.GetItem(r.handle)) or nil
-                if it and it.owner then
-                    Log(("  owner check: %s"):format(tostring(it.owner)))
-                end
-
-                -- D: if the item is equipped on a LIVE subject, unequip first
-                local inv = subject and subject.inventory
+                -- STRICT: unequip if equipped (on THIS inv)
                 if inv and inv.IsEquipped then
                     local okEq, isEq = pcall(inv.IsEquipped, inv, r.handle)
                     if okEq and isEq then
-                        Log(("  equip: %s is equipped → trying UnequipItem first"):format(tostring(r.name)))
+                        Log(("  equip: %s is equipped → UnequipItem"):format(r.name))
                         if inv.UnequipItem then
                             local okU = pcall(inv.UnequipItem, inv, r.handle)
                             Log(("    UnequipItem → %s"):format(okU and "ok" or "fail"))
@@ -207,24 +221,56 @@ function GS_Sanitizer.nukeInventory(subject, opts)
                     end
                 end
 
-                local ok, used, trace = deleteHandle(subject, r.handle)
-                Log(("  delete %s → %s%s%s"):format(
-                    r.name,
-                    ok and "ok" or "fail",
-                    used and (" [" .. used .. "]") or "",
-                    trace and (" {" .. trace .. "}") or ""
-                ))
+                -- DELETE from the SAME inventory reference we enumerated
+                local used, ok = nil, false
+                local trace = {}
 
-                -- E2: immediate, per-item re-enum to see if THIS delete changed the container
-                --     (debug-only; feel free to remove later)
-                local rowsNow = enumInventory(subject)
-                Log(("    after-delete count=%d"):format(#rowsNow))
+                local function try(label, fn)
+                    local okc, res = pcall(fn)
+                    trace[#trace + 1] = label .. "=" .. tostring(okc and (res == nil and "ok" or res))
+                    if okc and (res == true or res == nil) then
+                        used = label; return true
+                    end
+                    return false
+                end
+
+                if inv and inv.DeleteItem and try("inv.DeleteItem", function() return inv:DeleteItem(r.handle) end) then
+                    ok = true
+                elseif inv and inv.DeleteItemByClass and r.class and
+                    try("inv.DeleteItemByClass", function() return inv:DeleteItemByClass(r.class, 1) end) then
+                    ok = true
+                elseif ItemManager and ItemManager.DeleteItem and
+                    try("ItemManager.DeleteItem", function() return ItemManager.DeleteItem(r.handle) end) then
+                    ok = true
+                elseif inv and inv.RemoveItem and try("inv.RemoveItem", function() return inv:RemoveItem(r.handle) end) then
+                    ok = true
+                end
+
+                Log(("  delete %s → %s%s {%s}"):format(
+                    r.name, ok and "ok" or "fail", used and (" [" .. used .. "]") or "", table.concat(trace, " | ")))
+
+                -- per-item immediate re-enum from the SAME inv (if available)
+                local countAfter = 0
+                if inv and inv.GetInventoryTable then
+                    local okT, tab = pcall(inv.GetInventoryTable, inv)
+                    if okT and type(tab) == "table" then for _ in pairs(tab) do countAfter = countAfter + 1 end end
+                else
+                    local rowsAfter = enumInventory(subject)
+                    countAfter = #rowsAfter
+                end
+
+                local delta = countBefore - countAfter
+                if not dry then
+                    if delta > 0 then
+                        Log(("verify: writable → removed=%d (before=%d after=%d)"):format(delta, countBefore, countAfter))
+                    else
+                        Log(("verify: no delta (likely read-only) → before=%d after=%d"):format(countBefore, countAfter))
+                    end
+                end
             end
-        else
-            keepCount = keepCount + 1
-            Log(("  keep (%s): %s"):format(why, r.name))
         end
     end
+
 
     local rowsAfter = enumInventory(subject)
     local countAfter = #rowsAfter
