@@ -4,7 +4,7 @@
 GraveSense_Config = {
     -- heartbeat (combat polling)
     heartbeatMs = 3000,  -- 3s poll for combat
-    traceTicks  = false, -- true = log every heartbeat tick
+    traceTicks  = true, -- true = log every heartbeat tick
     debug       = true,  -- show ENTER/EXIT & startup logs
 
     -- combat loop (death probe)
