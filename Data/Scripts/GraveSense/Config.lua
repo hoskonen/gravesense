@@ -1,47 +1,42 @@
--- Scripts/GraveSense/Config.lua
--- Overrides for GraveSense (Lua 5.1). Leave out any key you don't want to override.
+-- GraveSense user settings (Lua 5.1).
+-- This table is intentionally data-only so an MCM adapter can override it later.
 
 GraveSense_Config = {
-    -- heartbeat (combat polling)
-    heartbeatMs = 3000,  -- 3s poll for combat
-    traceTicks  = false, -- true = log every heartbeat tick
-    debug       = true,  -- show ENTER/EXIT & startup logs
+    enabled = true,
 
-    -- combat loop (death probe)
-    combatMs    = 250,   -- 1s while in combat
-    scanRadiusM = 8.0,   -- meters for death probe radius
-    debounceMs  = 15000, -- ignore same corpse for this long
-    enabled     = true,  -- master enable for the whole module
-
-    -- bridge/sanitizer (we'll use later; harmless now)
-    bridge      = {
-        enabled         = true,  -- subscribe to the death bus
-        sanitizeOnDeath = true,  -- keep OFF for now
-        delayMs         = 200,
-        dryRun          = false, -- true = don't do any mutation
+    runtime = {
+        heartbeatMs = 1000,
+        combatMs = 250,
+        scanRadiusM = 10.0,
+        maxAttempts = 3,
     },
-    sanitize    = {
-        enabled             = true,  -- allow sanitizer module
-        dryRun              = false, -- KEEP TRUE while testing
-        unequipBeforeDelete = true,
-        -- Diagnostic gate: try exactly one non-equipped potion/repair-kit class
-        -- with the verified DeleteItemOfClass(classId, 1) signature, then stop.
-        experimentClassDeleteOne = true,
-        skipMoney           = true,
-        protectNames        = { bandage = true }, -- example
-        protectClasses      = {},                 -- fill later if needed
-    },
-    preCorpse   = {
-        enabled            = true,
-        hpThreshold        = 0.50, -- wide for proving; tune down later
-        deltaThreshold     = 0.20, -- fire if hp drops >= 20% between ticks
-        rangeM             = 10.0,
-        debounceMs         = 1500,
-        delayMs            = 0,
-        forceWhenUnknownHp = true, -- <— important for your build
-    },
-    logging     = { preCorpseTrace = false }
 
-    -- sanitize { enabled=true, dryRun=true/false, skipMoney=true, unequipBeforeDelete=true, ... }
+    -- Until a reliable hostility binding is found, a nearby living actor becomes
+    -- eligible only after taking damage while the player is in combat.
+    trigger = {
+        hpThreshold = 0.75,
+        damageDelta = 0.05,
+        processUnknownHealth = false,
+    },
 
+    rules = {
+        repairKits = { enabled = true },
+        potions = { enabled = false },
+    },
+
+    safety = {
+        dryRun = false,
+        skipEquipped = true,
+        protectNames = {
+            money = true,
+            bandage = true,
+        },
+        protectClasses = {},
+    },
+
+    logging = {
+        debug = false,
+        itemDetails = false,
+        pollingAliveMs = 30000,
+    },
 }
