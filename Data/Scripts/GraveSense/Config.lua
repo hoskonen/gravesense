@@ -4,7 +4,7 @@
 GraveSense_Config = {
     -- heartbeat (combat polling)
     heartbeatMs = 3000,  -- 3s poll for combat
-    traceTicks  = true, -- true = log every heartbeat tick
+    traceTicks  = false, -- true = log every heartbeat tick
     debug       = true,  -- show ENTER/EXIT & startup logs
 
     -- combat loop (death probe)
@@ -24,6 +24,9 @@ GraveSense_Config = {
         enabled             = true,  -- allow sanitizer module
         dryRun              = false, -- KEEP TRUE while testing
         unequipBeforeDelete = true,
+        -- Diagnostic gate: try exactly one non-equipped potion/repair-kit class
+        -- with the verified DeleteItemOfClass(classId, 1) signature, then stop.
+        experimentClassDeleteOne = true,
         skipMoney           = true,
         protectNames        = { bandage = true }, -- example
         protectClasses      = {},                 -- fill later if needed
@@ -37,7 +40,7 @@ GraveSense_Config = {
         delayMs            = 0,
         forceWhenUnknownHp = true, -- <— important for your build
     },
-    logging     = { preCorpseTrace = true }
+    logging     = { preCorpseTrace = false }
 
     -- sanitize { enabled=true, dryRun=true/false, skipMoney=true, unequipBeforeDelete=true, ... }
 

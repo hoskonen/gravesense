@@ -246,12 +246,12 @@ function GraveSense.HeartbeatTick()
 
     local p = GetPlayer()
     if not p then
-        if GS.cfg.debug then
+        if GS.cfg.traceTicks then
             Log("Polling for combat.. (no player)")
         end
     else
         local ic = IsInCombatRaw(p)
-        if GS.cfg.debug then
+        if GS.cfg.traceTicks then
             Log("Polling for combat.. inCombat=" .. tostring(ic))
         end
 

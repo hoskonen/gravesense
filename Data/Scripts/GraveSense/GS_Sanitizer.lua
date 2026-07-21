@@ -9,10 +9,84 @@ local function cfg()
         enabled             = (c.enabled ~= false),   -- global enable for sanitizer
         dryRun              = (c.dryRun ~= false),    -- stay DRY-RUN by default
         unequipBeforeDelete = (c.unequipBeforeDelete ~= false),
+        experimentClassDeleteOne = (c.experimentClassDeleteOne == true),
         skipMoney           = (c.skipMoney ~= false), -- true: don't delete 'money'
         protectNames        = c.protectNames or {},   -- e.g., { money=true, bandage=true }
         protectClasses      = c.protectClasses or {}, -- map[classId]=true
     }
+end
+
+-- Fast, deliberately narrow mutation experiment. This does not trust the
+-- engine return value: success means the selected class count actually fell.
+-- It runs at most once for each inventory object during the Lua session.
+GS_Sanitizer._expClassAttempted = GS_Sanitizer._expClassAttempted or {}
+local enumInventory
+
+local function countClass(inv, rows, classId)
+    if inv and inv.GetCountOfClass then
+        local ok, value = pcall(inv.GetCountOfClass, inv, tostring(classId))
+        if ok and type(value) == "number" then return value, "GetCountOfClass" end
+    end
+
+    local count = 0
+    for i = 1, #(rows or {}) do
+        if tostring(rows[i].class) == tostring(classId) then count = count + 1 end
+    end
+    return count, "enumeration"
+end
+
+local function runClassDeleteExperiment(subject, inv, rows)
+    local key = tostring(inv)
+    if GS_Sanitizer._expClassAttempted[key] then
+        Log("[EXP1] already attempted for inventory=" .. key .. "; old sanitizer bypassed")
+        return false
+    end
+
+    if not (inv and type(inv.DeleteItemOfClass) == "function") then
+        GS_Sanitizer._expClassAttempted[key] = true
+        Log("[EXP1] DeleteItemOfClass unavailable; old sanitizer bypassed")
+        return false
+    end
+
+    local candidate = nil
+    for i = 1, #rows do
+        local row = rows[i]
+        local name = tostring(row.name or "")
+        local preferred = name:find("repairKit_", 1, true) == 1
+            or name:find("potion_", 1, true) == 1
+        if preferred then
+            local equipped = false
+            if inv.IsEquipped and row.handle then
+                local okEq, isEq = pcall(inv.IsEquipped, inv, row.handle)
+                equipped = okEq and (isEq == true or isEq == 1) or false
+            end
+            if not equipped then candidate = row; break end
+        end
+    end
+
+    GS_Sanitizer._expClassAttempted[key] = true
+    if not candidate then
+        Log("[EXP1] no non-equipped potion/repair-kit candidate; old sanitizer bypassed")
+        return false
+    end
+
+    local before, beforeHow = countClass(inv, rows, candidate.class)
+    Log(("[EXP1] TEST owner=%s name=%s class=%s before=%s via=%s")
+        :format(tostring(subject and subject.GetName and subject:GetName() or subject),
+            tostring(candidate.name), tostring(candidate.class), tostring(before), beforeHow))
+
+    local callOk, engineResult = pcall(
+        inv.DeleteItemOfClass, inv, tostring(candidate.class), 1)
+
+    local rowsAfter = enumInventory(subject)
+    local after, afterHow = countClass(inv, rowsAfter, candidate.class)
+    local delta = (type(before) == "number" and type(after) == "number") and (before - after) or nil
+    local verified = callOk and delta == 1
+
+    Log(("[EXP1] RESULT verified=%s callOk=%s engineResult=%s before=%s after=%s delta=%s afterVia=%s total=%d->%d")
+        :format(tostring(verified), tostring(callOk), tostring(engineResult),
+            tostring(before), tostring(after), tostring(delta), afterHow, #rows, #rowsAfter))
+    return verified
 end
 
 -- tiny helpers
@@ -47,7 +121,7 @@ local function shouldDelete(row, C)
 end
 
 -- build a plan: read-only pass over inventory
-local function enumInventory(subject)
+enumInventory = function(subject)
     local out = {}
     local inv = subject and subject.inventory
     if inv and inv.GetInventoryTable then
@@ -194,6 +268,14 @@ function GS_Sanitizer.nukeInventory(subject, opts)
 
 
     local rows = enumInventory(subject)
+
+    -- While EXP1 is enabled, never fall through to the legacy bulk mutation
+    -- chain. One candidate and one engine write produce an unambiguous result.
+    if C.experimentClassDeleteOne then
+        runClassDeleteExperiment(subject, inv, rows)
+        return true
+    end
+
     local delCount, keepCount = 0, 0
 
     for i = 1, #rows do
