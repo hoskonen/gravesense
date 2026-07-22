@@ -3,9 +3,18 @@
 GraveSense = GraveSense or {}
 local GS = GraveSense
 
+-- Hot-reload safety: cancel timer IDs owned by the previous script body.
+if Script and Script.KillTimer then
+    if GS._heartbeatTimer then pcall(Script.KillTimer, GS._heartbeatTimer) end
+    if GS._combatTimer then pcall(Script.KillTimer, GS._combatTimer) end
+end
+
 GS._heartbeatActive = false
 GS._combatActive = false
 GS._inCombat = false
+GS._heartbeatTimer = nil
+GS._combatTimer = nil
+GS._pauseReasons = {}
 GS._lastPollingLogMs = nil
 
 local defaults = {
@@ -239,7 +248,8 @@ local function processEntity(entity, key)
 end
 
 function GraveSense.CombatTick()
-    if not GS._combatActive or not GS._inCombat then return end
+    GS._combatTimer = nil
+    if not GS._combatActive or not GS._inCombat or GraveSense.IsPaused() then return end
 
     local player = getPlayer()
     if player and player.GetWorldPos then
@@ -263,14 +273,17 @@ function GraveSense.CombatTick()
     end
 
     if Script and Script.SetTimerForFunction then
-        Script.SetTimerForFunction(tonumber(GS.cfg.runtime.combatMs) or 250, "GraveSense.CombatTick")
+        GS._combatTimer = Script.SetTimerForFunction(
+            tonumber(GS.cfg.runtime.combatMs) or 250,
+            "GraveSense.CombatTick"
+        )
     end
 end
 
 _G["GraveSense.CombatTick"] = GraveSense.CombatTick
 
 function GraveSense.StartCombat()
-    if GS._combatActive then return end
+    if GS._combatActive or GraveSense.IsPaused() then return end
     GS._combatActive = true
     GS_State.ResetCombat()
     GS_Log.Info("combat scan started")
@@ -278,14 +291,19 @@ function GraveSense.StartCombat()
 end
 
 function GraveSense.StopCombat()
-    if not GS._combatActive then return end
+    local wasActive = GS._combatActive
     GS._combatActive = false
+    if GS._combatTimer and Script and Script.KillTimer then
+        pcall(Script.KillTimer, GS._combatTimer)
+    end
+    GS._combatTimer = nil
     GS_State.ResetCombat()
-    GS_Log.Info("combat scan stopped")
+    if wasActive then GS_Log.Info("combat scan stopped") end
 end
 
 function GraveSense.HeartbeatTick()
-    if not GS._heartbeatActive then return end
+    GS._heartbeatTimer = nil
+    if not GS._heartbeatActive or GraveSense.IsPaused() then return end
 
     local player = getPlayer()
     local combat = isInCombat(player)
@@ -299,7 +317,10 @@ function GraveSense.HeartbeatTick()
     end
 
     if Script and Script.SetTimerForFunction then
-        Script.SetTimerForFunction(tonumber(GS.cfg.runtime.heartbeatMs) or 1000, "GraveSense.HeartbeatTick")
+        GS._heartbeatTimer = Script.SetTimerForFunction(
+            tonumber(GS.cfg.runtime.heartbeatMs) or 1000,
+            "GraveSense.HeartbeatTick"
+        )
     end
 end
 
@@ -307,7 +328,7 @@ _G["GraveSense.HeartbeatTick"] = GraveSense.HeartbeatTick
 
 function GraveSense.Start()
     if not GS.cfg then GraveSense.ReloadConfig() end
-    if not GS.cfg.enabled or GS._heartbeatActive then return end
+    if not GS.cfg.enabled or GraveSense.IsPaused() or GS._heartbeatActive then return end
     GS._heartbeatActive = true
     GS_Log.Info(("ready: repairKits=%s potions=%s dryRun=%s")
         :format(tostring(GS.cfg.rules.repairKits.enabled), tostring(GS.cfg.rules.potions.enabled),
@@ -316,15 +337,59 @@ function GraveSense.Start()
 end
 
 function GraveSense.Stop()
+    GraveSense.StopCombat()
     GS._heartbeatActive = false
-    GS._combatActive = false
+    if GS._heartbeatTimer and Script and Script.KillTimer then
+        pcall(Script.KillTimer, GS._heartbeatTimer)
+    end
+    GS._heartbeatTimer = nil
     GS._inCombat = false
+end
+
+function GraveSense.IsPaused()
+    return next(GS._pauseReasons or {}) ~= nil
+end
+
+local function pauseReasonList()
+    local reasons = {}
+    for reason in pairs(GS._pauseReasons or {}) do reasons[#reasons + 1] = tostring(reason) end
+    table.sort(reasons)
+    return table.concat(reasons, ",")
+end
+
+function GraveSense.Pause(reason)
+    reason = tostring(reason or "unknown")
+    if GS._pauseReasons[reason] then return end
+
+    GS._pauseReasons[reason] = true
+    GraveSense.Stop()
+    GS_Log.Info("polling paused: " .. reason)
+end
+
+function GraveSense.Resume(reason)
+    reason = tostring(reason or "unknown")
+    if not GS._pauseReasons[reason] then return end
+
+    GS._pauseReasons[reason] = nil
+    if GraveSense.IsPaused() then
+        GS_Log.Info("polling remains paused: " .. pauseReasonList())
+        return
+    end
+
+    GS._lastPollingLogMs = nil
+    GS_Log.Info("polling resumed: " .. reason)
+    GraveSense.Start()
+end
+
+function GraveSense.ClearPauseReasons()
+    GS._pauseReasons = {}
 end
 
 function GraveSense.OnGameplayStarted()
     -- Level/save loading discards pending Script timers without clearing our
     -- Lua flags. Force a fresh timer chain for the newly established world.
     GraveSense.Stop()
+    GraveSense.ClearPauseReasons()
     GS_State.ResetAll()
     GS._lastPollingLogMs = nil
     GS_Log.Info("gameplay started")

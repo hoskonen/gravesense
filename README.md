@@ -12,6 +12,8 @@ NPC's inventory during combat, before the corpse inventory UI is available.
   `DeleteItemOfClass(classId, count)` inventory API.
 - Recounts every mutated class and reports a compact verification summary.
 - Removes repair kits by default; potion removal is implemented but disabled.
+- Owns cancellable heartbeat/combat timers and pauses them during Game Over and
+  SkipTime (sleep/wait) UI sequences.
 
 Settings are in `Data/Scripts/GraveSense/Config.lua`. The settings table is kept
 independent from the runtime so a Mod Configuration Menu adapter can be added
@@ -26,3 +28,12 @@ A successful mutation produces one line per affected NPC:
 ```
 
 Set `logging.debug` and `logging.itemDetails` to `true` for development details.
+
+Lifecycle transitions are intentionally visible without per-tick spam:
+
+```text
+[GraveSense][INFO] polling paused: gameover
+[GraveSense][INFO] polling resumed: gameover
+[GraveSense][INFO] polling paused: skiptime
+[GraveSense][INFO] polling resumed: skiptime
+```

@@ -5,9 +5,11 @@ Script.ReloadScript("Scripts/GraveSense/GS_State.lua")
 Script.ReloadScript("Scripts/GraveSense/GS_Rules.lua")
 Script.ReloadScript("Scripts/GraveSense/GS_Mutator.lua")
 Script.ReloadScript("Scripts/GraveSense/GraveSense.lua")
+Script.ReloadScript("Scripts/GraveSense/GS_EventBridge.lua")
 
-if UIAction and UIAction.RegisterEventSystemListener then
+if UIAction and UIAction.RegisterEventSystemListener and not GraveSense._gameplayListenerBound then
     UIAction.RegisterEventSystemListener(GraveSense, "System", "OnGameplayStarted", "OnGameplayStarted")
+    GraveSense._gameplayListenerBound = true
 end
 
 if GraveSense and GraveSense.Start then
