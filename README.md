@@ -22,11 +22,23 @@ without changing inventory logic.
 
 ## Mod Configuration Menu
 
-When MCM is installed, GraveSense registers a `General` category containing an
-`Enable Grave Sense` toggle. It applies immediately and persists through the
-global KCDUtils LuaDB namespace `gravesense`. A missing or invalid saved value falls
-back to `Config.lua`; with MCM absent, GraveSense continues using the persisted
-value and `Config.lua` normally.
+When MCM is installed, GraveSense provides this layout:
+
+```text
+General
+  Enable
+Item Categories
+  Bandages
+  Potions
+  Repair Kits
+Debug
+  Enable
+```
+
+All controls apply immediately and persist through the global KCDUtils LuaDB
+namespace `gravesense`. Records created by the earlier master-toggle-only build
+remain valid; missing fields fall back to `Config.lua` until the next MCM change
+writes the complete settings record.
 
 ## Diagnostic output
 

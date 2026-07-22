@@ -3,7 +3,7 @@ GS_Rules = GS_Rules or {}
 local definitions = {
     { id = "repairKits", prefixes = { "repairKit_" } },
     { id = "potions", prefixes = { "potion_" } },
-    { id = "bandages", names = { "bandage" } },
+    { id = "bandages", names = { "bandage", "bandage_classic" } },
 }
 
 local function startsWith(value, prefix)
