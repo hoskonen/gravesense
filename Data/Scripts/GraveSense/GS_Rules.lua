@@ -14,15 +14,16 @@ local function matchingRule(name, settings)
     for i = 1, #definitions do
         local definition = definitions[i]
         local rule = settings and settings[definition.id]
-        if rule and rule.enabled then
+        local chance = rule and tonumber(rule.chance) or 0
+        if rule and chance > 0 then
             for j = 1, #(definition.names or {}) do
                 if name == definition.names[j] then
-                    return definition.id
+                    return definition.id, math.max(0, math.min(100, chance))
                 end
             end
             for j = 1, #(definition.prefixes or {}) do
                 if startsWith(name, definition.prefixes[j]) then
-                    return definition.id
+                    return definition.id, math.max(0, math.min(100, chance))
                 end
             end
         end
@@ -45,7 +46,10 @@ function GS_Rules.BuildPlan(rows, inventory, cfg)
         local protected = (safety.protectNames and safety.protectNames[name])
             or (classId and safety.protectClasses and safety.protectClasses[classId])
 
-        local ruleId = (not protected) and matchingRule(name, cfg and cfg.rules) or nil
+        local ruleId, chance
+        if not protected then
+            ruleId, chance = matchingRule(name, cfg and cfg.rules)
+        end
         if ruleId and classId and not byClass[classId] then
             local equipped = false
             if safety.skipEquipped ~= false and inventory and inventory.IsEquipped and row.handle then
@@ -60,6 +64,7 @@ function GS_Rules.BuildPlan(rows, inventory, cfg)
                     class = classId,
                     name = name,
                     rule = ruleId,
+                    chance = chance,
                 }
                 plan[#plan + 1] = operation
                 byClass[classId] = operation

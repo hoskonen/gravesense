@@ -26,6 +26,21 @@ local function normalizeBoolean(value)
     return nil
 end
 
+local function normalizePercent(value)
+    local numericValue = tonumber(value)
+    if numericValue == nil or numericValue < 0 or numericValue > 100 then return nil end
+    return math.floor(numericValue + 0.5)
+end
+
+local function readChance(record, chanceKey, legacyToggleKey)
+    local chance = normalizePercent(record[chanceKey])
+    if chance ~= nil then return chance end
+
+    local legacyEnabled = normalizeBoolean(record[legacyToggleKey])
+    if legacyEnabled ~= nil then return legacyEnabled and 100 or 0 end
+    return nil
+end
+
 local function ensureDB()
     if Settings._db then return Settings._db end
     if not (KCDUtils and KCDUtils.DB and KCDUtils.DB.Factory) then
@@ -57,25 +72,25 @@ local function readRecord(db)
     local enabled = normalizeBoolean(value.enabled)
     if enabled == nil then return nil, "enabled value is invalid" end
 
-    -- Fields added after the original master-toggle record are optional. A nil
-    -- value falls back to Config.lua and is written on the next MCM change.
+    -- Probability fields are optional. Older category toggles migrate to
+    -- equivalent 0%/100% values; otherwise Config.lua supplies the default.
     return {
         version = tonumber(value.version) or 1,
         enabled = enabled,
-        bandages = normalizeBoolean(value.bandages),
-        potions = normalizeBoolean(value.potions),
-        repairKits = normalizeBoolean(value.repairKits),
+        bandagesChance = readChance(value, "bandagesChance", "bandages"),
+        potionsChance = readChance(value, "potionsChance", "potions"),
+        repairKitsChance = readChance(value, "repairKitsChance", "repairKits"),
         debug = normalizeBoolean(value.debug),
     }, nil
 end
 
 local function buildRecord(config)
     return {
-        version = 2,
+        version = 3,
         enabled = config.enabled and 1 or 0,
-        bandages = config.rules.bandages.enabled and 1 or 0,
-        potions = config.rules.potions.enabled and 1 or 0,
-        repairKits = config.rules.repairKits.enabled and 1 or 0,
+        bandagesChance = normalizePercent(config.rules.bandages.chance) or 100,
+        potionsChance = normalizePercent(config.rules.potions.chance) or 100,
+        repairKitsChance = normalizePercent(config.rules.repairKits.chance) or 100,
         debug = config.logging.debug and 1 or 0,
     }
 end
@@ -83,9 +98,9 @@ end
 local function recordMatchesConfig(record, config)
     return record ~= nil
         and record.enabled == config.enabled
-        and record.bandages == config.rules.bandages.enabled
-        and record.potions == config.rules.potions.enabled
-        and record.repairKits == config.rules.repairKits.enabled
+        and record.bandagesChance == config.rules.bandages.chance
+        and record.potionsChance == config.rules.potions.chance
+        and record.repairKitsChance == config.rules.repairKits.chance
         and record.debug == config.logging.debug
 end
 
@@ -104,14 +119,14 @@ function Settings.LoadInto(config)
     end
 
     config.enabled = record.enabled
-    if record.bandages ~= nil then config.rules.bandages.enabled = record.bandages end
-    if record.potions ~= nil then config.rules.potions.enabled = record.potions end
-    if record.repairKits ~= nil then config.rules.repairKits.enabled = record.repairKits end
+    if record.bandagesChance ~= nil then config.rules.bandages.chance = record.bandagesChance end
+    if record.potionsChance ~= nil then config.rules.potions.chance = record.potionsChance end
+    if record.repairKitsChance ~= nil then config.rules.repairKits.chance = record.repairKitsChance end
     if record.debug ~= nil then config.logging.debug = record.debug end
 
-    log(("loaded enabled=%s bandages=%s potions=%s repairKits=%s debug=%s")
-        :format(tostring(config.enabled), tostring(config.rules.bandages.enabled),
-            tostring(config.rules.potions.enabled), tostring(config.rules.repairKits.enabled),
+    log(("loaded enabled=%s bandages=%s%% potions=%s%% repairKits=%s%% debug=%s")
+        :format(tostring(config.enabled), tostring(config.rules.bandages.chance),
+            tostring(config.rules.potions.chance), tostring(config.rules.repairKits.chance),
             tostring(config.logging.debug)))
     return true, nil
 end
@@ -142,13 +157,16 @@ function Settings.SetEnabled(enabled, source, persist)
     return true, nil
 end
 
-function Settings.SetRuleEnabled(ruleId, enabled, source, persist)
+function Settings.SetRuleChance(ruleId, chance, source, persist)
     local rule = GS.cfg and GS.cfg.rules and GS.cfg.rules[ruleId]
     if not rule then return false, "unknown rule" end
 
-    rule.enabled = enabled == true
-    log(("rule %s=%s source=%s")
-        :format(tostring(ruleId), tostring(rule.enabled), tostring(source or "settings")))
+    chance = normalizePercent(chance)
+    if chance == nil then return false, "invalid probability" end
+
+    rule.chance = chance
+    log(("rule %s=%s%% source=%s")
+        :format(tostring(ruleId), tostring(rule.chance), tostring(source or "settings")))
     if persist then return Settings.SaveAll(GS.cfg) end
     return true, nil
 end

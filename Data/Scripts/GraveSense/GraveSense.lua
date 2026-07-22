@@ -36,9 +36,9 @@ local defaults = {
         processUnknownHealth = false,
     },
     rules = {
-        repairKits = { enabled = true },
-        potions = { enabled = false },
-        bandages = { enabled = true },
+        repairKits = { chance = 100 },
+        potions = { chance = 100 },
+        bandages = { chance = 100 },
     },
     safety = {
         dryRun = true,
@@ -48,7 +48,6 @@ local defaults = {
     },
     logging = {
         debug = false,
-        itemDetails = false,
         pollingAliveMs = 30000,
     },
 }
@@ -213,11 +212,10 @@ local function logResult(entity, key, result)
     for i = 1, #(result.details or {}) do
         local detail = result.details[i]
         counts[detail.rule] = (counts[detail.rule] or 0) + math.max(0, detail.removed or 0)
-        if GS.cfg.logging and GS.cfg.logging.itemDetails then
-            GS_Log.Debug(("item name=%s class=%s before=%s after=%s verified=%s engine=%s")
-                :format(tostring(detail.name), tostring(detail.class), tostring(detail.before),
-                    tostring(detail.after), tostring(detail.verified), tostring(detail.engineResult)))
-        end
+        GS_Log.Debug(("item name=%s class=%s chance=%s%% selected=%s before=%s after=%s verified=%s engine=%s")
+            :format(tostring(detail.name), tostring(detail.class), tostring(detail.chance),
+                tostring(detail.selected), tostring(detail.before), tostring(detail.after),
+                tostring(detail.verified), tostring(detail.engineResult)))
     end
 
     GS_Log.Info(("%s processed: repairKits=%d potions=%d bandages=%d removed=%d failed=%d verified=%s wuid=%s")
@@ -226,7 +224,7 @@ local function logResult(entity, key, result)
 end
 
 local function processEntity(entity, key)
-    local ok, result = pcall(GS_Mutator.Process, entity, GS.cfg)
+    local ok, result = pcall(GS_Mutator.Process, entity, GS.cfg, key)
     if not ok then
         GS_Log.Error(("%s processing crashed: %s"):format(getName(entity), tostring(result)))
         return false
@@ -421,9 +419,9 @@ function GraveSense.Start()
     if not GS.cfg then GraveSense.ReloadConfig() end
     if not GS.cfg.enabled or GraveSense.IsPaused() or GS._heartbeatActive then return end
     GS._heartbeatActive = true
-    GS_Log.Info(("ready: repairKits=%s potions=%s bandages=%s dryRun=%s")
-        :format(tostring(GS.cfg.rules.repairKits.enabled), tostring(GS.cfg.rules.potions.enabled),
-            tostring(GS.cfg.rules.bandages.enabled),
+    GS_Log.Info(("ready: repairKits=%s%% potions=%s%% bandages=%s%% dryRun=%s")
+        :format(tostring(GS.cfg.rules.repairKits.chance), tostring(GS.cfg.rules.potions.chance),
+            tostring(GS.cfg.rules.bandages.chance),
             tostring(GS.cfg.safety.dryRun)))
     GraveSense.HeartbeatTick()
 end

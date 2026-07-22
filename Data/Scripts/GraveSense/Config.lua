@@ -22,9 +22,9 @@ GraveSense_Config = {
     },
 
     rules = {
-        repairKits = { enabled = true },
-        potions = { enabled = false },
-        bandages = { enabled = true },
+        repairKits = { chance = 100 },
+        potions = { chance = 100 },
+        bandages = { chance = 100 },
     },
 
     safety = {
@@ -38,7 +38,6 @@ GraveSense_Config = {
 
     logging = {
         debug = false,
-        itemDetails = false,
         pollingAliveMs = 30000,
     },
 }

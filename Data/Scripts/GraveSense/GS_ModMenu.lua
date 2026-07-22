@@ -18,6 +18,12 @@ local function toggleValue(value)
     return numericValue ~= 0
 end
 
+local function probabilityValue(value)
+    local numericValue = tonumber(value)
+    if numericValue == nil or numericValue < 0 or numericValue > 100 then return nil end
+    return math.floor(numericValue + 0.5)
+end
+
 function MM.BuildSettings()
     MCM.AddMod(MOD_ID, MOD_NAME)
 
@@ -30,22 +36,22 @@ function MM.BuildSettings()
 
     MCM.AddCategory(
         MOD_ID, "Item Categories",
-        "Choose which item categories Grave Sense removes from NPC inventories."
+        "Set the independent removal chance for each eligible item. Zero disables a category."
     )
-    MCM.AddToggle(
-        MOD_ID, "bandages", "Bandages",
-        "Remove bandages from eligible NPC inventories.",
-        GS.cfg.rules.bandages.enabled and 1 or 0
+    MCM.AddSlider(
+        MOD_ID, "bandages_chance", "Bandages",
+        "Chance to remove each bandage from an eligible fallen NPC.",
+        0, 100, 5, GS.cfg.rules.bandages.chance, "%"
     )
-    MCM.AddToggle(
-        MOD_ID, "potions", "Potions",
-        "Remove potions from eligible NPC inventories.",
-        GS.cfg.rules.potions.enabled and 1 or 0
+    MCM.AddSlider(
+        MOD_ID, "potions_chance", "Potions",
+        "Chance to remove each potion from an eligible fallen NPC.",
+        0, 100, 5, GS.cfg.rules.potions.chance, "%"
     )
-    MCM.AddToggle(
-        MOD_ID, "repair_kits", "Repair Kits",
-        "Remove repair kits from eligible NPC inventories.",
-        GS.cfg.rules.repairKits.enabled and 1 or 0
+    MCM.AddSlider(
+        MOD_ID, "repair_kits_chance", "Repair Kits",
+        "Chance to remove each repair kit from an eligible fallen NPC.",
+        0, 100, 5, GS.cfg.rules.repairKits.chance, "%"
     )
 
     MCM.AddCategory(MOD_ID, "Debug", "Additional diagnostic logging.")
@@ -57,32 +63,36 @@ function MM.BuildSettings()
 end
 
 function MM.OnValueChanged(settingId, value)
-    local enabled = toggleValue(value)
-    if enabled == nil then
-        log("ignored invalid value for " .. tostring(settingId) .. ": " .. tostring(value))
-        return
-    end
-
     if not (GS.Settings and GS.Settings.SaveAll) then
         log("settings module unavailable; change ignored")
         return
     end
 
     if settingId == "enabled" then
+        local enabled = toggleValue(value)
+        if enabled == nil then return end
         GS.Settings.SetEnabled(enabled, "mcm", true)
-    elseif settingId == "bandages" then
-        GS.Settings.SetRuleEnabled("bandages", enabled, "mcm", true)
-    elseif settingId == "potions" then
-        GS.Settings.SetRuleEnabled("potions", enabled, "mcm", true)
-    elseif settingId == "repair_kits" then
-        GS.Settings.SetRuleEnabled("repairKits", enabled, "mcm", true)
     elseif settingId == "debug" then
+        local enabled = toggleValue(value)
+        if enabled == nil then return end
         GS.Settings.SetDebugEnabled(enabled, "mcm", true)
+    elseif settingId == "bandages_chance" then
+        local chance = probabilityValue(value)
+        if chance == nil then return end
+        GS.Settings.SetRuleChance("bandages", chance, "mcm", true)
+    elseif settingId == "potions_chance" then
+        local chance = probabilityValue(value)
+        if chance == nil then return end
+        GS.Settings.SetRuleChance("potions", chance, "mcm", true)
+    elseif settingId == "repair_kits_chance" then
+        local chance = probabilityValue(value)
+        if chance == nil then return end
+        GS.Settings.SetRuleChance("repairKits", chance, "mcm", true)
     else
         return
     end
 
-    log(("%s=%s"):format(tostring(settingId), tostring(enabled)))
+    log(("%s=%s"):format(tostring(settingId), tostring(value)))
 end
 
 -- Stable closures prevent duplicate/stale callbacks across Script.ReloadScript.
