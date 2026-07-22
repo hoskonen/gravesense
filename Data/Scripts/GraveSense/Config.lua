@@ -7,6 +7,8 @@ GraveSense_Config = {
     runtime = {
         heartbeatMs = 1000,
         combatMs = 250,
+        deathWatchMs = 100,
+        postCombatRetentionMs = 15000,
         scanRadiusM = 10.0,
         maxAttempts = 3,
     },

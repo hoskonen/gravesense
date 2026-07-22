@@ -1,13 +1,17 @@
 # GraveSense
 
-GraveSense makes enemy loot scarcer by applying configurable rules to a living
-NPC's inventory during combat, before the corpse inventory UI is available.
+GraveSense makes enemy loot scarcer by tracking damaged NPCs during combat and
+applying configurable rules immediately after they die, before the corpse
+inventory UI is available.
 
 ## Current 2026 runtime
 
-- Scans nearby living actors only while the player is in combat.
-- Selects damaged actors using health threshold/change detection.
-- Processes each actor WUID once per loaded gameplay session.
+- Scans nearby actors only while the player is in combat.
+- Selects damaged actors using health threshold/change detection, including
+  lethal transitions between combat scans.
+- Retains selected entity/WUID references through death and briefly after combat.
+- Uses a lightweight 100 ms watcher only while selected actors remain alive.
+- Processes each dead actor WUID once per loaded gameplay session.
 - Removes all enabled, non-equipped item classes with the verified
   `DeleteItemOfClass(classId, count)` inventory API.
 - Recounts every mutated class and reports a compact verification summary.

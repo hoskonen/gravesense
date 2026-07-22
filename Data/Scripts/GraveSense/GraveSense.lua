@@ -7,13 +7,16 @@ local GS = GraveSense
 if Script and Script.KillTimer then
     if GS._heartbeatTimer then pcall(Script.KillTimer, GS._heartbeatTimer) end
     if GS._combatTimer then pcall(Script.KillTimer, GS._combatTimer) end
+    if GS._deathWatchTimer then pcall(Script.KillTimer, GS._deathWatchTimer) end
 end
 
 GS._heartbeatActive = false
 GS._combatActive = false
+GS._deathWatchActive = false
 GS._inCombat = false
 GS._heartbeatTimer = nil
 GS._combatTimer = nil
+GS._deathWatchTimer = nil
 GS._pauseReasons = {}
 GS._lastPollingLogMs = nil
 
@@ -22,6 +25,8 @@ local defaults = {
     runtime = {
         heartbeatMs = 1000,
         combatMs = 250,
+        deathWatchMs = 100,
+        postCombatRetentionMs = 15000,
         scanRadiusM = 10.0,
         maxAttempts = 3,
     },
@@ -224,7 +229,7 @@ local function processEntity(entity, key)
     local ok, result = pcall(GS_Mutator.Process, entity, GS.cfg)
     if not ok then
         GS_Log.Error(("%s processing crashed: %s"):format(getName(entity), tostring(result)))
-        return
+        return false
     end
     if not result.complete then
         local attempts = GS_State.AddAttempt(key)
@@ -237,7 +242,7 @@ local function processEntity(entity, key)
             GS_Log.Debug(("%s processing deferred (%d/%d): %s")
                 :format(getName(entity), attempts, maximum, tostring(result.error)))
         end
-        return
+        return attempts >= maximum
     end
 
     GS_State.MarkProcessed(key)
@@ -246,6 +251,16 @@ local function processEntity(entity, key)
     else
         GS_Log.Debug(getName(entity) .. " processed: no matching items")
     end
+    return true
+end
+
+local function trackUntilDeath(entity, key, currentHealth)
+    local _, created = GS_State.Track(key, entity)
+    if created then
+        GS_Log.Info(("tracking %s until death: hp=%s wuid=%s")
+            :format(getName(entity), tostring(currentHealth), key))
+    end
+    GraveSense.StartDeathWatch()
 end
 
 function GraveSense.CombatTick()
@@ -261,12 +276,25 @@ function GraveSense.CombatTick()
         for i = 1, #entities do
             local entity = entities[i]
             local actorLike = entity and entity ~= player and (entity.soul or entity.actor)
-            if actorLike and entity.inventory and not isDead(entity) then
+            if actorLike and entity.inventory then
                 local key = getWuid(entity)
                 if not GS_State.WasProcessed(key) then
-                    local currentHealth = health01(entity)
-                    if shouldProcess(key, currentHealth) then
-                        processEntity(entity, key)
+                    local target = GS_State.GetTarget(key)
+                    local dead = isDead(entity)
+                    if target and not dead then
+                        GS_State.Track(key, entity)
+                    elseif not target and dead then
+                        -- A lethal hit can occur between combat ticks. Only accept
+                        -- a dead actor if this combat previously observed it alive.
+                        local previousHealth = GS_State.GetHealth(key)
+                        if previousHealth ~= nil and shouldProcess(key, 0) then
+                            trackUntilDeath(entity, key, 0)
+                        end
+                    else
+                        local currentHealth = health01(entity)
+                        if shouldProcess(key, currentHealth) then
+                            trackUntilDeath(entity, key, currentHealth)
+                        end
                     end
                 end
             end
@@ -283,10 +311,67 @@ end
 
 _G["GraveSense.CombatTick"] = GraveSense.CombatTick
 
+function GraveSense.DeathWatchTick()
+    GS._deathWatchTimer = nil
+    if not GS._deathWatchActive or GraveSense.IsPaused() then return end
+
+    local now = currentTimeMs()
+    local targets = GS_State.GetTargets()
+    for key, target in pairs(targets) do
+        local entity = target.entity
+        if not entity then
+            GS_State.RemoveTarget(key)
+        elseif isDead(entity) then
+            if not target.deathLogged then
+                target.deathLogged = true
+                GS_Log.Info(("death detected: %s wuid=%s")
+                    :format(getName(entity), key))
+            end
+            if processEntity(entity, key) then
+                GS_State.RemoveTarget(key)
+            end
+        elseif target.expiresAtMs and now >= target.expiresAtMs then
+            GS_Log.Debug(("tracking expired alive: %s wuid=%s")
+                :format(getName(entity), key))
+            GS_State.RemoveTarget(key)
+        end
+    end
+
+    if not GS_State.HasTargets() then
+        GS._deathWatchActive = false
+        return
+    end
+
+    if Script and Script.SetTimerForFunction then
+        GS._deathWatchTimer = Script.SetTimerForFunction(
+            tonumber(GS.cfg.runtime.deathWatchMs) or 100,
+            "GraveSense.DeathWatchTick"
+        )
+    end
+end
+
+_G["GraveSense.DeathWatchTick"] = GraveSense.DeathWatchTick
+
+function GraveSense.StartDeathWatch()
+    if GS._deathWatchActive or GraveSense.IsPaused() or not GS_State.HasTargets() then return end
+    GS._deathWatchActive = true
+    GraveSense.DeathWatchTick()
+end
+
+function GraveSense.StopDeathWatch(clearTargets)
+    GS._deathWatchActive = false
+    if GS._deathWatchTimer and Script and Script.KillTimer then
+        pcall(Script.KillTimer, GS._deathWatchTimer)
+    end
+    GS._deathWatchTimer = nil
+    if clearTargets then GS_State.ClearTargets() end
+end
+
 function GraveSense.StartCombat()
     if GS._combatActive or GraveSense.IsPaused() then return end
     GS._combatActive = true
     GS_State.ResetCombat()
+    GS_State.ClearTargetExpiry()
     GS_Log.Info("combat scan started")
     GraveSense.CombatTick()
 end
@@ -299,6 +384,11 @@ function GraveSense.StopCombat()
     end
     GS._combatTimer = nil
     GS_State.ResetCombat()
+    if GS_State.HasTargets() then
+        local retention = tonumber(GS.cfg.runtime.postCombatRetentionMs) or 15000
+        GS_State.SetTargetExpiry(currentTimeMs() + math.max(0, retention))
+        GraveSense.StartDeathWatch()
+    end
     if wasActive then GS_Log.Info("combat scan stopped") end
 end
 
@@ -361,6 +451,7 @@ end
 
 function GraveSense.Stop()
     GraveSense.StopCombat()
+    GraveSense.StopDeathWatch(true)
     GS._heartbeatActive = false
     if GS._heartbeatTimer and Script and Script.KillTimer then
         pcall(Script.KillTimer, GS._heartbeatTimer)
