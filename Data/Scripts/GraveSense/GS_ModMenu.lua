@@ -38,7 +38,12 @@ function MM.OnValueChanged(settingId, value)
     end
 
     local enabled = numericValue ~= 0
-    GS.SetEnabled(enabled, "mcm")
+    if GS.Settings and GS.Settings.SetEnabled then
+        GS.Settings.SetEnabled(enabled, "mcm", true)
+    else
+        GS.SetEnabled(enabled, "mcm")
+        log("settings module unavailable; value was not persisted")
+    end
     log("cfg.enabled=" .. tostring(GS.cfg.enabled))
 end
 

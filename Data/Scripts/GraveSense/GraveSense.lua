@@ -415,6 +415,9 @@ function GraveSense.OnGameplayStarted()
     GraveSense.ClearPauseReasons()
     GS_State.ResetAll()
     GS._lastPollingLogMs = nil
+    if GS.Settings and GS.Settings.LoadInto then
+        GS.Settings.LoadInto(GS.cfg)
+    end
     GS_Log.Info("gameplay started")
     GraveSense.Start()
 end
