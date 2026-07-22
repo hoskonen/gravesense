@@ -33,11 +33,12 @@ local defaults = {
     rules = {
         repairKits = { enabled = true },
         potions = { enabled = false },
+        bandages = { enabled = true },
     },
     safety = {
         dryRun = true,
         skipEquipped = true,
-        protectNames = { money = true, bandage = true },
+        protectNames = { money = true },
         protectClasses = {},
     },
     logging = {
@@ -203,7 +204,7 @@ local function logPollingAlive(inCombat)
 end
 
 local function logResult(entity, key, result)
-    local counts = { repairKits = 0, potions = 0 }
+    local counts = { repairKits = 0, potions = 0, bandages = 0 }
     for i = 1, #(result.details or {}) do
         local detail = result.details[i]
         counts[detail.rule] = (counts[detail.rule] or 0) + math.max(0, detail.removed or 0)
@@ -214,8 +215,8 @@ local function logResult(entity, key, result)
         end
     end
 
-    GS_Log.Info(("%s processed: repairKits=%d potions=%d removed=%d failed=%d verified=%s wuid=%s")
-        :format(getName(entity), counts.repairKits or 0, counts.potions or 0,
+    GS_Log.Info(("%s processed: repairKits=%d potions=%d bandages=%d removed=%d failed=%d verified=%s wuid=%s")
+        :format(getName(entity), counts.repairKits or 0, counts.potions or 0, counts.bandages or 0,
             result.removed or 0, result.failed or 0, tostring((result.failed or 0) == 0), key))
 end
 
@@ -330,10 +331,32 @@ function GraveSense.Start()
     if not GS.cfg then GraveSense.ReloadConfig() end
     if not GS.cfg.enabled or GraveSense.IsPaused() or GS._heartbeatActive then return end
     GS._heartbeatActive = true
-    GS_Log.Info(("ready: repairKits=%s potions=%s dryRun=%s")
+    GS_Log.Info(("ready: repairKits=%s potions=%s bandages=%s dryRun=%s")
         :format(tostring(GS.cfg.rules.repairKits.enabled), tostring(GS.cfg.rules.potions.enabled),
+            tostring(GS.cfg.rules.bandages.enabled),
             tostring(GS.cfg.safety.dryRun)))
     GraveSense.HeartbeatTick()
+end
+
+function GraveSense.SetEnabled(enabled, source)
+    if not GS.cfg then GraveSense.ReloadConfig() end
+    enabled = enabled == true
+
+    if GS.cfg.enabled == enabled then
+        GS_Log.Info(("enabled=%s source=%s (unchanged)")
+            :format(tostring(enabled), tostring(source or "runtime")))
+        return
+    end
+
+    GS.cfg.enabled = enabled
+    if enabled then
+        GraveSense.Start()
+    else
+        GraveSense.Stop()
+    end
+
+    GS_Log.Info(("enabled=%s source=%s")
+        :format(tostring(enabled), tostring(source or "runtime")))
 end
 
 function GraveSense.Stop()

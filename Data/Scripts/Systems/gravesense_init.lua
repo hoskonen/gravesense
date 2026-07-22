@@ -6,6 +6,7 @@ Script.ReloadScript("Scripts/GraveSense/GS_Rules.lua")
 Script.ReloadScript("Scripts/GraveSense/GS_Mutator.lua")
 Script.ReloadScript("Scripts/GraveSense/GraveSense.lua")
 Script.ReloadScript("Scripts/GraveSense/GS_EventBridge.lua")
+Script.ReloadScript("Scripts/GraveSense/GS_ModMenu.lua")
 
 if UIAction and UIAction.RegisterEventSystemListener and not GraveSense._gameplayListenerBound then
     UIAction.RegisterEventSystemListener(GraveSense, "System", "OnGameplayStarted", "OnGameplayStarted")

@@ -11,7 +11,8 @@ NPC's inventory during combat, before the corpse inventory UI is available.
 - Removes all enabled, non-equipped item classes with the verified
   `DeleteItemOfClass(classId, count)` inventory API.
 - Recounts every mutated class and reports a compact verification summary.
-- Removes repair kits by default; potion removal is implemented but disabled.
+- Removes repair kits and bandages by default; potion removal is implemented
+  but disabled until its rule receives a dedicated gameplay test.
 - Owns cancellable heartbeat/combat timers and pauses them during Game Over and
   SkipTime (sleep/wait) UI sequences.
 
@@ -19,12 +20,19 @@ Settings are in `Data/Scripts/GraveSense/Config.lua`. The settings table is kept
 independent from the runtime so a Mod Configuration Menu adapter can be added
 without changing inventory logic.
 
+## Mod Configuration Menu
+
+When MCM is installed, GraveSense registers a `General` category containing an
+`Enable Grave Sense` toggle. This first integration slice applies the master
+toggle immediately but does not persist it yet. With MCM absent, GraveSense
+continues using `Config.lua` without an error.
+
 ## Diagnostic output
 
 A successful mutation produces one line per affected NPC:
 
 ```text
-[GraveSense][INFO] tneb_kozlik processed: repairKits=1 potions=0 removed=1 failed=0 verified=true
+[GraveSense][INFO] tneb_kozlik processed: repairKits=1 potions=0 bandages=3 removed=4 failed=0 verified=true
 ```
 
 Set `logging.debug` and `logging.itemDetails` to `true` for development details.

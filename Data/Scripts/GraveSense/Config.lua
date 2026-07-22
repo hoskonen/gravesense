@@ -22,6 +22,7 @@ GraveSense_Config = {
     rules = {
         repairKits = { enabled = true },
         potions = { enabled = false },
+        bandages = { enabled = true },
     },
 
     safety = {
@@ -29,7 +30,6 @@ GraveSense_Config = {
         skipEquipped = true,
         protectNames = {
             money = true,
-            bandage = true,
         },
         protectClasses = {},
     },

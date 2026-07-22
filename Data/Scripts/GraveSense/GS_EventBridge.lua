@@ -9,17 +9,23 @@ function GS.OnGameOverShown(...)
 end
 
 function GS.OnGameOverHidden(...)
-    GS_Log.Info("event: game over hidden")
-    GS.Resume("gameover")
+    -- Do not resume into the dying world between GameOver and save loading.
+    -- OnGameplayStarted clears this pause and creates the authoritative timer.
+    GS_Log.Info("event: game over hidden; waiting for gameplay start")
 end
 
 function GS:OnSkipTimeEvent(elementName, instanceId, eventName, argTable)
     local mode = argTable and argTable[1] or nil
-    GS_Log.Info(("event: skip time %s mode=%s"):format(tostring(eventName), tostring(mode)))
 
     if eventName == "OnSetFaderState" then
+        if mode and mode ~= "" and mode ~= GS._skipTimeMode then
+            GS._skipTimeMode = mode
+            GS_Log.Info("event: skip time mode=" .. tostring(mode))
+        end
         GS.Pause("skiptime")
     elseif eventName == "OnHide" then
+        GS_Log.Info("event: skip time hidden")
+        GS._skipTimeMode = nil
         GS.Resume("skiptime")
     end
 end

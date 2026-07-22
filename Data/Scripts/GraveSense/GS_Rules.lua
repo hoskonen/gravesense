@@ -3,6 +3,7 @@ GS_Rules = GS_Rules or {}
 local definitions = {
     { id = "repairKits", prefixes = { "repairKit_" } },
     { id = "potions", prefixes = { "potion_" } },
+    { id = "bandages", names = { "bandage" } },
 }
 
 local function startsWith(value, prefix)
@@ -14,7 +15,12 @@ local function matchingRule(name, settings)
         local definition = definitions[i]
         local rule = settings and settings[definition.id]
         if rule and rule.enabled then
-            for j = 1, #definition.prefixes do
+            for j = 1, #(definition.names or {}) do
+                if name == definition.names[j] then
+                    return definition.id
+                end
+            end
+            for j = 1, #(definition.prefixes or {}) do
                 if startsWith(name, definition.prefixes[j]) then
                     return definition.id
                 end
