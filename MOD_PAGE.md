@@ -58,3 +58,21 @@ The Mod Configuration Menu provides:
 
 Settings are saved globally and remain active across save loads and game
 sessions. Setting an item category to 0% disables that category.
+
+## Limitations
+
+- GraveSense processes NPCs that are observed taking damage near the player
+  during active combat. Quiet or stealth kills that never trigger combat are not
+  processed.
+- Bodies that were already dead before GraveSense observed them in combat are
+  not processed by the current version.
+- Eligibility is based on combat, proximity, and damage rather than a confirmed
+  faction-hostility API. Nearby allies or animals may therefore be tracked if
+  they take damage, although they are left unchanged when they carry no matching
+  items.
+- Some quest-scripted knockouts may be reported by the engine through the same
+  actor state used for death detection. If such a character was tracked and
+  carries an eligible item, GraveSense may process that inventory.
+- Items added or renamed by other mods are recognized only when their technical
+  names follow the supported repair-kit and potion prefixes or the known bandage
+  names.

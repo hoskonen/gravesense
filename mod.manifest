@@ -2,9 +2,9 @@
   <info>
     <name>Grave Sense</name>
     <modid>gravesense</modid>
-    <description>Grave Sense</description>
+    <description>Fallen foes leave fewer supplies.</description>
     <author>hoskope</author>
-    <version>2.0.0-alpha.1</version>
+    <version>1.0.0</version>
     <created_on>2026-07-21</created_on>
   </info>
   <supports>
