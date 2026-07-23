@@ -27,6 +27,14 @@ GraveSense_Config = {
         bandages = { chance = 100 },
     },
 
+    replacements = {
+        emptyPotionBottles = {
+            enabled = true,
+            class = "0773e4a5-c8da-4783-85af-f7eb7e6bdd44",
+            health = 1.0,
+        },
+    },
+
     safety = {
         dryRun = false,
         skipEquipped = true,

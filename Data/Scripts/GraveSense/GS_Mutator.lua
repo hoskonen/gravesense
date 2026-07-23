@@ -46,11 +46,21 @@ local function countClass(inventory, rows, classId)
         if ok and type(value) == "number" then return value end
     end
 
+    if type(rows) ~= "table" then return nil end
     local count = 0
-    for i = 1, #(rows or {}) do
+    for i = 1, #rows do
         if tostring(rows[i].class) == tostring(classId) then count = count + 1 end
     end
     return count
+end
+
+local function recountClass(subject, inventory, classId)
+    local count = countClass(inventory, nil, classId)
+    if count ~= nil then return count, nil end
+
+    local rows, _, enumError = enumerate(subject)
+    if not rows then return nil, enumError end
+    return countClass(nil, rows, classId), nil
 end
 
 -- Pure deterministic hashing avoids changing the game's global RNG state and
@@ -81,6 +91,60 @@ local function removalQuantity(ownerKey, classId, count, chance)
         if roll < chance then selected = selected + 1 end
     end
     return selected
+end
+
+local function createReplacement(subject, inventory, replacement, quantity)
+    local classId = replacement and replacement.class
+    local detail = {
+        class = classId,
+        requested = quantity,
+        created = 0,
+        verified = false,
+    }
+
+    if not classId or classId == "" then
+        detail.error = "replacement class unavailable"
+        return detail
+    end
+    if not (inventory and type(inventory.CreateItem) == "function") then
+        detail.error = "CreateItem unavailable"
+        return detail
+    end
+
+    local before, beforeError = recountClass(subject, inventory, classId)
+    detail.before = before
+    if before == nil then
+        detail.error = "replacement count unavailable before create: " .. tostring(beforeError)
+        return detail
+    end
+
+    local health = tonumber(replacement.health) or 1.0
+    local callOk, engineResult = pcall(
+        inventory.CreateItem,
+        inventory,
+        tostring(classId),
+        health,
+        quantity
+    )
+    detail.engineResult = engineResult
+    if not callOk then
+        detail.error = "CreateItem raised an error: " .. tostring(engineResult)
+        return detail
+    end
+
+    local after, afterError = recountClass(subject, inventory, classId)
+    detail.after = after
+    if after == nil then
+        detail.error = "replacement count unavailable after create: " .. tostring(afterError)
+        return detail
+    end
+
+    detail.created = math.max(0, after - before)
+    detail.verified = detail.created == quantity
+    if not detail.verified then
+        detail.error = "replacement count did not increase by requested quantity"
+    end
+    return detail
 end
 
 function GS_Mutator.Process(subject, cfg, ownerKey)
@@ -118,8 +182,8 @@ function GS_Mutator.Process(subject, cfg, ownerKey)
                 operation.class,
                 selected
             )
-            local afterRows = enumerate(subject)
-            after = countClass(inventory, afterRows or {}, operation.class)
+            local recounted = recountClass(subject, inventory, operation.class)
+            if recounted ~= nil then after = recounted end
         end
 
         local removed = before - after
@@ -141,6 +205,19 @@ function GS_Mutator.Process(subject, cfg, ownerKey)
             verified = verified,
             engineResult = engineResult,
         }
+
+        local replacementCfg = cfg.replacements and cfg.replacements.emptyPotionBottles
+        if operation.rule == "potions"
+            and replacementCfg
+            and replacementCfg.enabled == true
+            and verified
+            and removed > 0
+            and not (cfg.safety and cfg.safety.dryRun)
+        then
+            local replacement = createReplacement(subject, inventory, replacementCfg, removed)
+            result.details[#result.details].replacement = replacement
+            if not replacement.verified then result.failed = result.failed + 1 end
+        end
     end
 
     return result

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="us-ascii"?>
+<database xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" name="barbora" xsi:noNamespaceSchemaLocation="item.xsd">
+	<ItemClasses version="8">
+		<MiscItem Type="5" IconId="emptyPotionBottle" UIInfo="ui_in_gravesense_emptyPotionBottle" UIName="ui_nm_gravesense_emptyPotionBottle" DisplayInShop="false" Model="manmade/task_specific_props/alchemy/ceramics/potion_flask_ceramic_a_nocork.cgf" Weight="0" Price="0" FadeCoef="1" VisibilityCoef="1" Id="0773e4a5-c8da-4783-85af-f7eb7e6bdd44" Name="gravesense_emptyPotionBottle" />
+	</ItemClasses>
+</database>

@@ -40,6 +40,13 @@ local defaults = {
         potions = { chance = 100 },
         bandages = { chance = 100 },
     },
+    replacements = {
+        emptyPotionBottles = {
+            enabled = false,
+            class = "0773e4a5-c8da-4783-85af-f7eb7e6bdd44",
+            health = 1.0,
+        },
+    },
     safety = {
         dryRun = true,
         skipEquipped = true,
@@ -209,6 +216,7 @@ end
 
 local function logResult(entity, key, result)
     local counts = { repairKits = 0, potions = 0, bandages = 0 }
+    local emptyBottles = 0
     for i = 1, #(result.details or {}) do
         local detail = result.details[i]
         counts[detail.rule] = (counts[detail.rule] or 0) + math.max(0, detail.removed or 0)
@@ -216,11 +224,21 @@ local function logResult(entity, key, result)
             :format(tostring(detail.name), tostring(detail.class), tostring(detail.chance),
                 tostring(detail.selected), tostring(detail.before), tostring(detail.after),
                 tostring(detail.verified), tostring(detail.engineResult)))
+        if detail.replacement then
+            local replacement = detail.replacement
+            emptyBottles = emptyBottles + math.max(0, replacement.created or 0)
+            GS_Log.Debug(("replacement class=%s requested=%s before=%s after=%s created=%s verified=%s engine=%s error=%s")
+                :format(tostring(replacement.class), tostring(replacement.requested),
+                    tostring(replacement.before), tostring(replacement.after),
+                    tostring(replacement.created), tostring(replacement.verified),
+                    tostring(replacement.engineResult), tostring(replacement.error)))
+        end
     end
 
-    GS_Log.Info(("%s processed: repairKits=%d potions=%d bandages=%d removed=%d failed=%d verified=%s wuid=%s")
+    GS_Log.Info(("%s processed: repairKits=%d potions=%d bandages=%d emptyBottles=%d removed=%d failed=%d verified=%s wuid=%s")
         :format(getName(entity), counts.repairKits or 0, counts.potions or 0, counts.bandages or 0,
-            result.removed or 0, result.failed or 0, tostring((result.failed or 0) == 0), key))
+            emptyBottles, result.removed or 0, result.failed or 0,
+            tostring((result.failed or 0) == 0), key))
 end
 
 local function processEntity(entity, key)
