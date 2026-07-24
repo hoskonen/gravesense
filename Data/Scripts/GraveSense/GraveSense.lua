@@ -47,6 +47,14 @@ local defaults = {
             health = 1.0,
         },
     },
+    testing = {
+        injectTrackedItem = {
+            enabled = false,
+            class = "761f9e84-e07b-4b4b-9425-7681898abccd",
+            health = 1.0,
+            quantity = 1,
+        },
+    },
     safety = {
         dryRun = true,
         skipEquipped = true,
@@ -270,11 +278,59 @@ local function processEntity(entity, key)
     return true
 end
 
+local function injectTrackedTestItem(entity, key)
+    local test = GS.cfg.testing and GS.cfg.testing.injectTrackedItem
+    if not (test and test.enabled == true) then return end
+
+    local inventory = entity and entity.inventory
+    local classId = test.class
+    local quantity = math.max(1, math.floor(tonumber(test.quantity) or 1))
+    if not (inventory and type(inventory.CreateItem) == "function"
+        and type(inventory.GetCountOfClass) == "function"
+        and classId and classId ~= "")
+    then
+        GS_Log.Warn(("test item injection unavailable: %s wuid=%s")
+            :format(getName(entity), key))
+        return
+    end
+
+    local beforeOk, before = pcall(
+        inventory.GetCountOfClass,
+        inventory,
+        tostring(classId)
+    )
+    if not beforeOk or type(before) ~= "number" then
+        GS_Log.Warn(("test item injection could not read initial count: %s wuid=%s")
+            :format(getName(entity), key))
+        return
+    end
+
+    local callOk, engineResult = pcall(
+        inventory.CreateItem,
+        inventory,
+        tostring(classId),
+        tonumber(test.health) or 1.0,
+        quantity
+    )
+    local afterOk, after = pcall(
+        inventory.GetCountOfClass,
+        inventory,
+        tostring(classId)
+    )
+    local verified = callOk and afterOk and type(after) == "number"
+        and after == before + quantity
+
+    GS_Log.Info(("test item injected: %s class=%s requested=%d before=%s after=%s verified=%s engine=%s wuid=%s")
+        :format(getName(entity), tostring(classId), quantity, tostring(before),
+            tostring(after), tostring(verified), tostring(engineResult), key))
+end
+
 local function trackUntilDeath(entity, key, currentHealth)
     local _, created = GS_State.Track(key, entity)
     if created then
         GS_Log.Info(("tracking %s until death: hp=%s wuid=%s")
             :format(getName(entity), tostring(currentHealth), key))
+        injectTrackedTestItem(entity, key)
     end
     GraveSense.StartDeathWatch()
 end
@@ -437,9 +493,10 @@ function GraveSense.Start()
     if not GS.cfg then GraveSense.ReloadConfig() end
     if not GS.cfg.enabled or GraveSense.IsPaused() or GS._heartbeatActive then return end
     GS._heartbeatActive = true
-    GS_Log.Info(("ready: repairKits=%s%% potions=%s%% bandages=%s%% dryRun=%s")
+    GS_Log.Info(("ready: repairKits=%s%% potions=%s%% bandages=%s%% emptyPotionBottles=%s dryRun=%s")
         :format(tostring(GS.cfg.rules.repairKits.chance), tostring(GS.cfg.rules.potions.chance),
             tostring(GS.cfg.rules.bandages.chance),
+            tostring(GS.cfg.replacements.emptyPotionBottles.enabled),
             tostring(GS.cfg.safety.dryRun)))
     GraveSense.HeartbeatTick()
 end

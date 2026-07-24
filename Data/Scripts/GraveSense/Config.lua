@@ -35,6 +35,17 @@ GraveSense_Config = {
         },
     },
 
+    -- Development-only controlled test. Set enabled=true and provide any item
+    -- class to inject it when an actor first becomes tracked.
+    testing = {
+        injectTrackedItem = {
+            enabled = false,
+            class = "761f9e84-e07b-4b4b-9425-7681898abccd",
+            health = 1.0,
+            quantity = 1,
+        },
+    },
+
     safety = {
         dryRun = false,
         skipEquipped = true,

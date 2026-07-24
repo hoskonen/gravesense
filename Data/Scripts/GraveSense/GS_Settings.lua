@@ -80,17 +80,19 @@ local function readRecord(db)
         bandagesChance = readChance(value, "bandagesChance", "bandages"),
         potionsChance = readChance(value, "potionsChance", "potions"),
         repairKitsChance = readChance(value, "repairKitsChance", "repairKits"),
+        emptyPotionBottles = normalizeBoolean(value.emptyPotionBottles),
         debug = normalizeBoolean(value.debug),
     }, nil
 end
 
 local function buildRecord(config)
     return {
-        version = 3,
+        version = 4,
         enabled = config.enabled and 1 or 0,
         bandagesChance = normalizePercent(config.rules.bandages.chance) or 100,
         potionsChance = normalizePercent(config.rules.potions.chance) or 100,
         repairKitsChance = normalizePercent(config.rules.repairKits.chance) or 100,
+        emptyPotionBottles = config.replacements.emptyPotionBottles.enabled and 1 or 0,
         debug = config.logging.debug and 1 or 0,
     }
 end
@@ -101,6 +103,7 @@ local function recordMatchesConfig(record, config)
         and record.bandagesChance == config.rules.bandages.chance
         and record.potionsChance == config.rules.potions.chance
         and record.repairKitsChance == config.rules.repairKits.chance
+        and record.emptyPotionBottles == config.replacements.emptyPotionBottles.enabled
         and record.debug == config.logging.debug
 end
 
@@ -122,11 +125,15 @@ function Settings.LoadInto(config)
     if record.bandagesChance ~= nil then config.rules.bandages.chance = record.bandagesChance end
     if record.potionsChance ~= nil then config.rules.potions.chance = record.potionsChance end
     if record.repairKitsChance ~= nil then config.rules.repairKits.chance = record.repairKitsChance end
+    if record.emptyPotionBottles ~= nil then
+        config.replacements.emptyPotionBottles.enabled = record.emptyPotionBottles
+    end
     if record.debug ~= nil then config.logging.debug = record.debug end
 
-    log(("loaded enabled=%s bandages=%s%% potions=%s%% repairKits=%s%% debug=%s")
+    log(("loaded enabled=%s bandages=%s%% potions=%s%% repairKits=%s%% emptyPotionBottles=%s debug=%s")
         :format(tostring(config.enabled), tostring(config.rules.bandages.chance),
             tostring(config.rules.potions.chance), tostring(config.rules.repairKits.chance),
+            tostring(config.replacements.emptyPotionBottles.enabled),
             tostring(config.logging.debug)))
     return true, nil
 end
@@ -167,6 +174,19 @@ function Settings.SetRuleChance(ruleId, chance, source, persist)
     rule.chance = chance
     log(("rule %s=%s%% source=%s")
         :format(tostring(ruleId), tostring(rule.chance), tostring(source or "settings")))
+    if persist then return Settings.SaveAll(GS.cfg) end
+    return true, nil
+end
+
+function Settings.SetReplacementEnabled(replacementId, enabled, source, persist)
+    local replacement = GS.cfg and GS.cfg.replacements
+        and GS.cfg.replacements[replacementId]
+    if not replacement then return false, "unknown replacement" end
+
+    replacement.enabled = enabled == true
+    log(("replacement %s=%s source=%s")
+        :format(tostring(replacementId), tostring(replacement.enabled),
+            tostring(source or "settings")))
     if persist then return Settings.SaveAll(GS.cfg) end
     return true, nil
 end

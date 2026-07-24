@@ -54,6 +54,16 @@ function MM.BuildSettings()
         0, 100, 5, GS.cfg.rules.repairKits.chance, "%"
     )
 
+    MCM.AddCategory(
+        MOD_ID, "Item Replacements",
+        "Optionally add immersive replacement items for supplies removed from fallen NPCs."
+    )
+    MCM.AddToggle(
+        MOD_ID, "empty_potion_bottles", "Empty Potion Bottles",
+        "Add one empty potion bottle for each potion removed from an eligible fallen NPC.",
+        GS.cfg.replacements.emptyPotionBottles.enabled and 1 or 0
+    )
+
     MCM.AddCategory(MOD_ID, "Debug", "Additional diagnostic logging.")
     MCM.AddToggle(
         MOD_ID, "debug", "Enable",
@@ -88,6 +98,10 @@ function MM.OnValueChanged(settingId, value)
         local chance = probabilityValue(value)
         if chance == nil then return end
         GS.Settings.SetRuleChance("repairKits", chance, "mcm", true)
+    elseif settingId == "empty_potion_bottles" then
+        local enabled = toggleValue(value)
+        if enabled == nil then return end
+        GS.Settings.SetReplacementEnabled("emptyPotionBottles", enabled, "mcm", true)
     else
         return
     end
